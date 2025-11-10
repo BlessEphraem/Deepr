@@ -1,4 +1,4 @@
-# Deepr
+# 🕳️ Deepr
 
 ## 🛠️ Prerequisites
 
@@ -43,7 +43,7 @@ The entire AHK environment is constructed via the primary Python script.
 
 class Files {
     static mainPy := "main.py" ; <-- generate/verify "settings.json" structure
-    static outputIncludes := ".includes.ahk" <-- generated ahk file for include 
+    static outputIncludes := ".includes.ahk" ; <-- generated ahk file for include 
 }
 
 ; You don't need to touch theses.
