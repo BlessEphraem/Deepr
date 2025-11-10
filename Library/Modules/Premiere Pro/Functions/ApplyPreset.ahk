@@ -35,9 +35,7 @@ ApplyPreset(ClosePanel := false) {
     }
     catch {
         ; If the focus cannot be retrieved (e.g., panel is missing), show an error tooltip and exit.
-        SetTimer((*) => TimedTooltip("Can't find effect panel.`n"
-                                 . "Panel was probably closed, try again."
-                                 . "", 4000), -100)
+        Tooltip("Can't find effect panel.`n" . "Panel was probably closed, try again." . "", 4000)
         Exit
     }
 

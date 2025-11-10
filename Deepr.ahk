@@ -84,23 +84,5 @@ Need to do a "Double Value Copy/Paste" func for pasting double values (ex: Motio
     SetTimer((*) => GUI_Debug.Update() , 100) ; Check every 100 ms
     GUI_SideNote.Init()
 
-/***********************************************************************************
-                                        @Hotkeys
-***********************************************************************************/
-    /**
-    * @example
-    * If HotkeyA::Action1 in <Core\Hotkeys\"Windows_Hotkeys">      <---  Work everywhere.
-    * If HotkeyA::Action2 in <Core\Hotkeys\"Premiere_Hotkeys">     <---  Over-ride "A" from "Core_Hotkeys"
-    * 
-    * @NOTES
-    * This is important for me to have #HotIf Layouts.Windows() and #HotIf Application_Class.Title,
-    * because if you have an hotkey on MButton like me, to move and resize the window under the mouse,
-    * and you want to use the native "MButton" hotkey inside Illustrator (as exemple), it will not work.
-    * So, you put your main "MButton" macro inside Layouts.Windows(),
-    * 
-    * '$' =
-    * 
-    */
-
 
 

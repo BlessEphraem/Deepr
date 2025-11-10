@@ -12,12 +12,6 @@ SetWorkingDir A_ScriptDir ; Ensures the working directory is that of the AHK scr
 
 class Files {
     static mainPy := "main.py"
-    static inputHotkeys := {
-        windows: "C:\Users\Ephraem\Desktop\Test_2\Hotkey_Window.ahk",
-        premiere: "C:\Users\Ephraem\Desktop\Test_2\Hotkey_Premiere.ahk",
-        afterfx: "C:\Users\Ephraem\Desktop\Test_2\Hotkey_AfterFx.ahk"
-    }
-
     static outputIncludes := ".includes.ahk" 
 }
 

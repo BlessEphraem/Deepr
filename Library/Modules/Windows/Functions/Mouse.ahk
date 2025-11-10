@@ -37,7 +37,7 @@ class Mouse {
         catch {
             ; TimedTooltip is a placeholder for a user-defined function that displays a temporary message.
             ; A SetTimer with a negative period (-100ms) executes once after 100ms.
-            SetTimer((*) => TimedTooltip("Can't find control.", 2000), -100)
+            Tooltip("Can't find control.", 2000)
         }
         return
     }
