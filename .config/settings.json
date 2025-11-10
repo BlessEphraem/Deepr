@@ -1,0 +1,133 @@
+{
+    "RootName": "Deepr",
+    "structure": [
+        {
+            "name": ".config",
+            "type": "Configuration",
+            "is_include": "true"
+        },
+        {
+            "type": "SupportFiles",
+            "is_include": "false",
+            "children": [
+                {
+                    "type": "AHK",
+                    "is_include": "false"
+                },
+                {
+                    "type": "Icons",
+                    "is_include": "false"
+                },
+                {
+                    "type": "Images",
+                    "is_include": "false"
+                },
+                {
+                    "type": "ImageSearch",
+                    "is_include": "false"
+                },
+                {
+                    "type": "Pythons",
+                    "is_include": "false"
+                },
+                {
+                    "type": "Sounds",
+                    "is_include": "false"
+                }
+            ]
+        },
+        {
+            "type": "Library",
+            "is_include": "true",
+            "children": [
+                {
+                    "type": "Core",
+                    "Active": "Windows",
+                    "description": "Scripts essentiels au fonctionnement global.",
+                    "is_include": "true",
+                    "children": [
+                        {
+                            "type": "Classes",
+                            "is_include": "true"
+                        },
+                        {
+                            "type": "Functions",
+                            "is_include": "true"
+                        }
+                    ]
+                },
+                {
+                    "type": "GUIs",
+                    "is_include": "true",
+                    "children":[
+                        {
+                            "type": "SupportFiles",
+                            "is_path": "false",
+                            "is_include": "true"
+                        }
+                    ] 
+                },
+                {
+                    "type": "Modules",
+                    "description": "Logiciels ou contextes spécifiques.",
+                    "is_include": "true",
+                    "children": [
+                        {
+                            "type": "Windows",
+                            "Active": "Windows",
+                            "is_include": "true",
+                            "children": [
+                                {
+                                    "type": "Classes",
+                                    "is_path": "false",
+                                    "is_include": "true"
+                                },
+                                {
+                                    "type": "Functions",
+                                    "is_path": "false",
+                                    "is_include": "true"
+                                }
+                            ]
+                        },
+                        {
+                            "name": "Premiere Pro",
+                            "type": "PremierePro",
+                            "Active": "ahk_exe Adobe Premiere Pro.exe",
+                            "is_include": "true",
+                            "children": [
+                                {
+                                    "type": "Classes",
+                                    "is_path": "false",
+                                    "is_include": "true"
+                                },
+                                {
+                                    "type": "Functions",
+                                    "is_path": "false",
+                                    "is_include": "true"
+                                }
+                            ]
+                        },
+                        {
+                            "name": "After Effects",
+                            "type": "AfterFx",
+                            "Active": "ahk_exe AfterFX.exe",
+                            "is_include": "true",
+                            "children": [
+                                {
+                                    "type": "Classes",
+                                    "is_path": "false",
+                                    "is_include": "true"
+                                },
+                                {
+                                    "type": "Functions",
+                                    "is_path": "false",
+                                    "is_include": "true"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
