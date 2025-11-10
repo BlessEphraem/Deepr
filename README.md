@@ -1,12 +1,17 @@
-# Deepr: Dynamic AutoHotkey Automation Framework
+# Deepr
 
-## 🚀 Overview
+## 🛠️ Prerequisites
+
+To build and run the framework, you need:
+
+* **Python 3.x**
+* **AutoHotkey v2.0+**
+
+## 💫 Overview
 
 Deepr is a robust and highly modular scripting framework designed to streamline complex workflows using AutoHotkey v2.0, managed entirely by a foundational Python build script.
 
 The project structure is driven by a single JSON file, ensuring consistency, easy maintenance, and rapid deployment of environment-specific automation logic.
-
-## ✨ Key Features
 
 * **Python-Driven Build Process:** The [main.py](\main.py) script automatically generates the entire AHK configuration, including path variables and #include directives, based on the settings.json file.
 
@@ -22,13 +27,6 @@ The project structure is driven by a single JSON file, ensuring consistency, eas
 
 * **Media Production:** Includes comprehensive function stubs and includes for common post-production tasks like [ClipGain.ahk](Library\Modules\Premiere%20Pro\Functions\ClipGain.ahk), [Keyframe.ahk](Library\Modules\Premiere%20Pro\Functions\Keyframe.ahk), [Motion.ahk](Library\Modules\Premiere%20Pro\Functions\Motion.ahk), and [Panel.ahk](Library\Modules\Premiere%20Pro\Functions\Motion.ahk) in Premiere Pro.
 
-## 🛠️ Prerequisites
-
-To build and run the framework, you need:
-
-* **Python 3.x**
-* **AutoHotkey v2.0+**
-
 ## 🚀 First run & after editing
 
 ### Setup ``settings.json``
@@ -37,7 +35,7 @@ To build and run the framework, you need:
 If you want to change rootname ("Deepr"), change it inside [settings.json](.config\settings.json) file, and look for [settings.md](.config\settings.md) for more informations. Major modification is made inside the .json file.
 Then, rename your root folder too. (I need some implementation here, still in progress)
 
-### 🚀 Run ``Launcher.ahk``
+### Run ``Launcher.ahk``
 You just need to start ``Launcher.ahk``.
 The entire AHK environment is constructed via the primary Python script.
 
