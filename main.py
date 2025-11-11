@@ -31,16 +31,26 @@ CONFIG_TYPE = "Configuration"
 EXIT_CODE_ERROR = 1
 
 # --- LOGGING SETUP ---
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        # Write logs to file, overwriting previous logs
-        logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'),
-        # Also output logs to the console
+def setup_logging(enable_file_log=False):
+    """Initialise le système de logging. Le StreamHandler (console) est toujours actif.
+       Le FileHandler (.log) est ajouté seulement si enable_file_log est True."""
+       
+    # Le StreamHandler est toujours actif pour l'affichage console
+    handlers = [
         logging.StreamHandler(sys.stdout)
     ]
-)
+    
+    if enable_file_log:
+        # Si --log est spécifié, on ajoute le FileHandler
+        # Écrit les logs dans le fichier, écrasant les précédents
+        handlers.append(logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'))
+
+    # Initialisation du logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=handlers
+    )
 
 def exit_script(code=0):
     """
@@ -1472,11 +1482,35 @@ def generate_SETTINGS_OUTPUT(settings, final_settings_path, python_cmd_used, is_
 def final_script_actions(final_script_name, is_initial_run, generated_ahk_config_file):
     """
     Gère la création initiale du script AHK final ou son lancement.
-    MODIFIÉ: Le script AHK est maintenant lancé lors d'une exécution standard.
+    Le script AHK est créé uniquement s'il n'est pas trouvable.
     """
     script_path = os.path.join(os.getcwd(), final_script_name)
     # Récupère le nom du fichier AHK de configuration (ex: settings.ahk)
     script_path_ahk = os.path.basename(generated_ahk_config_file)
+
+    if not os.path.exists(script_path):
+        # Le log a été mis à jour pour refléter la nouvelle logique.
+        logging.info(f"Final script not found. Creating base AHK script '{final_script_name}'.")
+        
+        # Le contenu minimal pour le script AHK final
+        base_content = [
+            f'; Auto-generated start script for {final_script_name}',
+            f'#Requires AutoHotkey v2.0',
+            f'#include "{script_path_ahk}"', # Inclure le fichier settings.ahk/Includes.ahk généré
+            f'\n; Your custom code starts here'
+        ]
+        
+        try:
+            # 'w' assure que si le fichier existe, son contenu est écrasé/mis à jour avec la base.
+            with open(script_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(base_content))
+            logging.info(f"Base AHK script '{final_script_name}' created successfully.")
+        except Exception as e:
+            logging.error(f"Error writing base AHK script '{final_script_name}': {e}")
+            # Le processus de construction n'est pas interrompu
+            
+    else:
+        logging.info(f"Final script '{final_script_name}' already exists. Skipping base content creation.")
     
     if is_initial_run:
         logging.info(f"Initial run: Creating base AHK script '{final_script_name}'.")
@@ -1684,6 +1718,15 @@ def main_build():
 
 if __name__ == "__main__":
     
+    enable_logging = False
+    if "--log" in sys.argv:
+        enable_logging = True
+        # Supprime l'argument '--log' de sys.argv pour que les indices
+        # des arguments positionnels (build, python_cmd, etc.) restent corrects.
+        sys.argv.remove("--log")
+
+    setup_logging(enable_logging)
+
     if len(sys.argv) < 2:
         print("❌ Erreur: Argument de mode ou de commande manquant.")
         print("Utilisation: main.py build <python_cmd> <ahk_output_file>")
@@ -1696,7 +1739,7 @@ if __name__ == "__main__":
         # Total : 5 arguments (main.py build python_cmd ahk_output_file)
         if len(sys.argv) < 5: # <--- (vérifie 5 arguments nécessaires)
             print("❌ Erreur de lancement (BUILD)")
-            print("Utilisation: main.py build <python_cmd> <ahk_path_file> <ahk_include_file>")
+            print("Utilisation: main.py build <python_cmd> <ahk_path_file> <ahk_include_file> [--log]")
             sys.exit(1)
 
         try:

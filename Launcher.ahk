@@ -17,10 +17,11 @@ class Files {
 }
 
 ; If one of thoses return false = Fatal Error
+Launcher.Log.Toggle := false
 Launcher.Check.IsAdmin
 Launcher.Check.Python(&pythonCmd)
 Launcher.Check.mainPy(A_ScriptDir, Files.mainPy)
-Launcher.Build(pythonCmd, Files.mainPy, Files.outputPath, Files.outputIncludes)
+Launcher.Build(pythonCmd, Files.mainPy, Files.outputPath, Files.outputIncludes, Launcher.Log.Toggle)
 ExitApp
 
 class Launcher {
@@ -32,6 +33,7 @@ class Launcher {
     class Log {
         ; Define the path for the log file
         static LogFile := "launcher.log"
+        static Toggle := ""
 
         ; Message box parameters: [Prefix, Title, Icon]
         static Err := ["Error : ", "Error", "16"]      ; Icon 16: Stop
@@ -46,6 +48,9 @@ class Launcher {
         * @returns {void}
         */
         static Write(type, msg) {
+            if !Launcher.Log.Toggle
+                return
+            
             ; Format: [YYYY-MM-DD HH:MM:SS] [TYPE] Message content
             Timestamp := FormatTime(, "yyyy-MM-dd HH:mm:ss")
             LogEntry := "[" Timestamp "] [" type "] " msg "`n"
@@ -185,17 +190,22 @@ class Launcher {
         }
     }
 
-    static Build(pythonCmd, StartScript, OutputPaths, OutputIncludes) {
-        Launcher.Log.Write("INFO", "Starting Build process.")
-        Launcher.Log.Write("INFO", "Command: " pythonCmd " " StartScript " build " pythonCmd " " OutputPaths " " OutputIncludes)
+    static Build(pythonCmd, StartScript, OutputPaths, OutputIncludes, Log := "") {
+        if Launcher.Log.Toggle = True
+            Log := "--log"
+        Launcher.Log.Write(
+            "INFO", "Starting the build process. 'Launcher.Log.Toggle' is set to true," . 
+            " so '--log' will be appended as an argument for main.py to enable its internal logging functionality."
+            )
+        command := pythonCmd " " StartScript " build " pythonCmd " " OutputPaths " " OutputIncludes " " Log
 
+        Launcher.Log.Write("INFO", "Command: " command)
+        exitCode := RunWait(command, , "Hide")
         ; RunWait returns the exit code of the launched program
         ; Passing pythonCmd as an argument to the Python script to save it in "path.ini" for easier reuse later
         ; Use the StartScript variable if you implement Python detection (see Python() function below)
-        exitCode := RunWait(pythonCmd " " StartScript " build " pythonCmd " " OutputPaths " " OutputIncludes, , "Hide")
         
         Launcher.Log.Write("INFO", "Build script finished with Exit Code: " exitCode)
-
         if (exitCode = 0) {
             try {
                 
