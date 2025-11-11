@@ -1,5 +1,7 @@
 ## 💫 Overview
 
+# STILL IN WORK FOR THE RELEASE!!
+
 Deepr is a robust and highly modular scripting framework designed to streamline complex workflows using AutoHotkey v2.0, managed entirely by a foundational Python build script.
 
 The project structure is driven by a single JSON file, ensuring consistency, easy maintenance, and rapid deployment of environment-specific automation logic.
