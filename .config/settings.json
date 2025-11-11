@@ -7,6 +7,12 @@
             "is_include": "true"
         },
         {
+            "name": ".wiki",
+            "type": "Wiki",
+            "is_include": "false",
+            "is_path": "false"
+        },
+        {
             "type": "SupportFiles",
             "is_include": "false",
             "children": [

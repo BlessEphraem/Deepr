@@ -12,6 +12,7 @@ SetWorkingDir A_ScriptDir ; Ensures the working directory is that of the AHK scr
 
 class Files {
     static mainPy := "main.py"
+    static outputPath := "paths.ahk" 
     static outputIncludes := ".includes.ahk" 
 }
 
@@ -19,7 +20,7 @@ class Files {
 Launcher.Check.IsAdmin
 Launcher.Check.Python(&pythonCmd)
 Launcher.Check.mainPy(A_ScriptDir, Files.mainPy)
-Launcher.Build(pythonCmd, Files.mainPy, Files.outputIncludes)
+Launcher.Build(pythonCmd, Files.mainPy, Files.outputPath, Files.outputIncludes)
 ExitApp
 
 class Launcher {
@@ -184,27 +185,27 @@ class Launcher {
         }
     }
 
-    static Build(pythonCmd, StartScript, OutputDir) {
+    static Build(pythonCmd, StartScript, OutputPaths, OutputIncludes) {
         Launcher.Log.Write("INFO", "Starting Build process.")
-        Launcher.Log.Write("INFO", "Command: " pythonCmd " " StartScript " build " pythonCmd " " OutputDir)
+        Launcher.Log.Write("INFO", "Command: " pythonCmd " " StartScript " build " pythonCmd " " OutputPaths " " OutputIncludes)
 
         ; RunWait returns the exit code of the launched program
         ; Passing pythonCmd as an argument to the Python script to save it in "path.ini" for easier reuse later
         ; Use the StartScript variable if you implement Python detection (see Python() function below)
-        exitCode := RunWait(pythonCmd " " StartScript " build " pythonCmd " " OutputDir, , "Hide")
+        exitCode := RunWait(pythonCmd " " StartScript " build " pythonCmd " " OutputPaths " " OutputIncludes, , "Hide")
         
         Launcher.Log.Write("INFO", "Build script finished with Exit Code: " exitCode)
 
         if (exitCode = 0) {
             try {
                 
-                FileRead(StartScript) ; Reading the raw content of the INI file
+                FileRead(OutputPaths) ; Reading the raw content of the INI file
                 
                 successMsg := "Configuration Successful!" . "`n`nThe Python script finished successfully and generated 'path.ini'."
                 Launcher.Log.Write("DONE", successMsg)
                 return
             } catch as e {
-                errorMsg := "The Python script succeeded (Code: 0), but the file " StartScript " could not be read."
+                errorMsg := "The Python script succeeded (Code: 0), but the file " OutputPaths " could not be read."
                 . "`n`nError: " e.Message
                 ; Added instruction to check log file
                 msgBoxText := errorMsg . "`n`nCheck the log file: " . Launcher.Log.LogFile

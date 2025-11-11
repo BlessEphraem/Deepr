@@ -7,6 +7,7 @@
 autofill.ahk
 *.rtf
 desktop.ini
+.wiki/
 
 # User-specific files
 *.rsuser

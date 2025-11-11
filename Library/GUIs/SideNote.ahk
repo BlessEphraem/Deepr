@@ -15,7 +15,7 @@ CoordMode "Mouse", "Screen"
 class GUI_SideNote
 {
     ; --- CONFIGURATION STATIQUE (Propriétés de la classe) ---
-    static notesFile := A_ScriptDir "\notes.rtf"
+    static notesFile := A_Path.Configuration "\notes.rtf"
     static panelWidth := 400
     static panelOpacity := 255
     static showDelay := 200     ; ms (avant de glisser)
