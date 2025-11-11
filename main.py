@@ -15,8 +15,8 @@ from tkinter import (
 SETTINGS_FILE = "settings.json"
 LOG_FILE = "mainpy.log"
 # Name of the AHK configuration file to generate
-SETTINGS_OUTPUT = None
 PATHFILE = None
+INCLUDE_OUTPUT = None
 
 # AHK local  variable name to use for the settings.json location
 AHK_VAR_SETTINGS = "path_settings"
@@ -1331,7 +1331,7 @@ def generate_ahk_includes(structure_list, root_name, base_dir, config_type_name)
                 )
 
     # Initial call to the recursive helper
-    # base_dir est os.getcwd() passé depuis generate_SETTINGS_OUTPUT
+    # base_dir est os.getcwd() passé depuis generate_INCLUDE_OUTPUT
     find_files_recursive(structure_list, '', [root_name])
     
     # --- 7. Génération du contenu final des includes ---
@@ -1377,18 +1377,18 @@ def generate_ahk_includes(structure_list, root_name, base_dir, config_type_name)
 # GENERATION FUNCTION
 # =================================================================
 
-def generate_SETTINGS_OUTPUT(settings, final_settings_path, python_cmd_used, is_initial_run, final_script_path):
+def generate_INCLUDE_OUTPUT(settings, final_settings_path, python_cmd_used, is_initial_run, final_script_path):
     """
     Generates the settings.ahk file used by the AHK application,
     including the class structure based on settings.json.
     """
-    logging.info(f"Generating output AHK file: {SETTINGS_OUTPUT}")
+    logging.info(f"Generating output AHK file: {INCLUDE_OUTPUT}")
     
     # Escape the path for the AHK_SETTINGS_FILE variable
     settings_path_ahk = clean_ahk_path(final_settings_path)
     final_script_path_ahk = clean_ahk_path(final_script_path)
     root_name = settings.get("RootName", "Unknown_Root")
-    output_path = os.path.join(os.getcwd(), SETTINGS_OUTPUT)
+    output_path = os.path.join(os.getcwd(), INCLUDE_OUTPUT)
 
     # --- 1. Base AHK content (Variables) ---
     # Ces variables doivent TOUJOURS être mises à jour pour s'assurer que les chemins sont corrects.
@@ -1474,9 +1474,9 @@ def generate_SETTINGS_OUTPUT(settings, final_settings_path, python_cmd_used, is_
     try:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(ahk_content)
-        logging.info(f"AHK file '{SETTINGS_OUTPUT}' generated successfully at: {output_path}")
+        logging.info(f"AHK file '{INCLUDE_OUTPUT}' generated successfully at: {output_path}")
     except Exception as e:
-        logging.error(f"Error writing AHK file '{SETTINGS_OUTPUT}': {e}")
+        logging.error(f"Error writing AHK file '{INCLUDE_OUTPUT}': {e}")
         exit_script(EXIT_CODE_ERROR)
 
 def final_script_actions(final_script_name, is_initial_run, generated_ahk_config_file):
@@ -1555,7 +1555,7 @@ def main_build():
     # ------------------------------------------------------------------------------------
     # 0. Try to get the python command, the output 'path' en 'include' file name passed as arguments
     # ------------------------------------------------------------------------------------
-    global SETTINGS_OUTPUT, PATHFILE, AHK_VAR_FINAL_SCRIPT_PATH 
+    global INCLUDE_OUTPUT, PATHFILE, AHK_VAR_FINAL_SCRIPT_PATH 
     
     AHK_VAR_FINAL_SCRIPT_PATH = None 
 
@@ -1565,12 +1565,12 @@ def main_build():
         logging.info(f"Python command detected via command-line argument: {python_absolutePath}")
 
         # sys.argv[3] est le nom du fichier AHK de sortie (ex: Includes.ahk)
-        PATHFILE = sys.argv[3] # PATHFILE est un alias de SETTINGS_OUTPUT
+        PATHFILE = sys.argv[3] # PATHFILE est un alias de INCLUDE_OUTPUT
         logging.info(f"Output PATHFILE file name detected via command-line argument: {PATHFILE}")
 
         # sys.argv[3] est le nom du fichier AHK Path de sortie (ex: path.ahk)
-        SETTINGS_OUTPUT = sys.argv[4]
-        logging.info(f"Output SETTINGS_OUTPUT file name detected via command-line argument: {SETTINGS_OUTPUT}")
+        INCLUDE_OUTPUT = sys.argv[4]
+        logging.info(f"Output INCLUDE_OUTPUT file name detected via command-line argument: {INCLUDE_OUTPUT}")
 
     except IndexError:
         # L'argument du script AHK final n'est plus obligatoire (arg 4)
@@ -1706,13 +1706,13 @@ def main_build():
     # ------------------------------------------------------------------------------------
     # 11. Generate the AHK configuration file (now with the class structure)
     # ------------------------------------------------------------------------------------
-    generate_SETTINGS_OUTPUT(settings_data, final_settings_path, python_absolutePath, is_initial_run, AHK_VAR_FINAL_SCRIPT_PATH)
+    generate_INCLUDE_OUTPUT(settings_data, final_settings_path, python_absolutePath, is_initial_run, AHK_VAR_FINAL_SCRIPT_PATH)
     
     # ------------------------------------------------------------------------------------
     # 12. Final script action: Create (initial run) or Launch (standard run)
     # ------------------------------------------------------------------------------------
-    # Le fichier de configuration AHK généré est le SETTINGS_OUTPUT (ex: Includes.ahk)
-    final_script_actions(AHK_VAR_FINAL_SCRIPT_PATH, is_initial_run, SETTINGS_OUTPUT) 
+    # Le fichier de configuration AHK généré est le INCLUDE_OUTPUT (ex: Includes.ahk)
+    final_script_actions(AHK_VAR_FINAL_SCRIPT_PATH, is_initial_run, INCLUDE_OUTPUT) 
 
     exit_script(0)
 
