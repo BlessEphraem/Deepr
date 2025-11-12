@@ -8,22 +8,23 @@ import configparser
 import re
 from datetime import datetime
 from tkinter import (
-    Tk, messagebox
+    Tk, messagebox, Toplevel, Frame, Button
 )
 
 # --- CONFIGURATION ---
 SETTINGS_FILE = "settings.json"
 LOG_FILE = "mainpy.log"
+SCRIPT_VERSION = "6.0 BETA"
 # Name of the AHK configuration file to generate
 PATHFILE = None
 INCLUDE_OUTPUT = None
 
-# AHK local  variable name to use for the settings.json location
+# AHK local variable name to use for the settings.json location
 AHK_VAR_SETTINGS = "path_settings"
 AHK_VAR_PYTHON_CMD = "cmd_python"
 AHK_VAR_FINAL_SCRIPT = "StartFinalScript"
 # The 'type' of item in settings.json to search for to find the config path
-CONFIG_TYPE = "Configuration"
+json_keyConfig = "Configuration"
 
 
 
@@ -32,20 +33,22 @@ EXIT_CODE_ERROR = 1
 
 # --- LOGGING SETUP ---
 def setup_logging(enable_file_log=False):
-    """Initialise le système de logging. Le StreamHandler (console) est toujours actif.
-       Le FileHandler (.log) est ajouté seulement si enable_file_log est True."""
+    """
+    Initializes the logging system. StreamHandler (console) is always active.
+    FileHandler (.log) is added only if enable_file_log is True.
+    """
        
-    # Le StreamHandler est toujours actif pour l'affichage console
+    # The StreamHandler is always active for console display
     handlers = [
         logging.StreamHandler(sys.stdout)
     ]
     
     if enable_file_log:
-        # Si --log est spécifié, on ajoute le FileHandler
-        # Écrit les logs dans le fichier, écrasant les précédents
+        # If --log is specified, add the FileHandler
+        # Writes logs to the file, overwriting previous ones
         handlers.append(logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'))
 
-    # Initialisation du logging
+    # Initialize logging
     logging.basicConfig(
         level=logging.DEBUG,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -86,7 +89,7 @@ def exit_script(code=0):
 def retrieve_ahk_variables(ahk_filepath):
     """
     Reads an AutoHotkey file (v2 variable declaration style) and attempts
-    to extract the 'path_settings' and 'cmd_python' variables.
+    to extract 'path_settings' and 'StartFinalScript' variables.
 
     Args:
         ahk_filepath (str): The path to the AHK file to read.
@@ -118,7 +121,7 @@ def retrieve_ahk_variables(ahk_filepath):
 
     # Second pass: Variable resolution
     # We only focus on the specific variables we need
-    vars_to_resolve = [AHK_VAR_SETTINGS, AHK_VAR_PYTHON_CMD, AHK_VAR_FINAL_SCRIPT]
+    vars_to_resolve = [AHK_VAR_SETTINGS, AHK_VAR_FINAL_SCRIPT]
     
     # Build a reference map for resolution
     definitions_map = {name: value.strip() for name, value in raw_definitions}
@@ -132,8 +135,6 @@ def retrieve_ahk_variables(ahk_filepath):
                 resolved_value = value_expression[1:-1].replace('""', '"') # Remove quotes and handle AHK escapes
             else:
                 # If it's not a quoted literal string, take it as-is.
-                # For our simple config, we assume it's a direct value.
-                # We don't handle complex AHK interpolation or expressions here.
                 resolved_value = value_expression 
 
             # Replace double backslashes (AHK escape) with a single backslash for Python
@@ -150,32 +151,30 @@ def retrieve_ahk_variables(ahk_filepath):
 
 def read_ahk_variables(pathfile_path):
     """
-    Attempts to load paths (settings_path and cmd_python) from the AHK file.
+    Attempts to load paths (settings_path and StartFinalScript) from the AHK file.
     
     Args:
         pathfile_path (str): The absolute path to the AHK file (path.ahk).
         
     Returns:
-        tuple or None: (settings_json_path, python_cmd) if successful, else None.
+        tuple or None: (settings_json_path, StartAHKScriptOutput) if successful, else None.
     """
     parsed_data = retrieve_ahk_variables(pathfile_path)
 
     settings_path = parsed_data.get(AHK_VAR_SETTINGS)
-    python_cmd = parsed_data.get(AHK_VAR_PYTHON_CMD)
-    final_script_path = parsed_data.get(AHK_VAR_FINAL_SCRIPT)
+    StartAHKScriptOutput = parsed_data.get(AHK_VAR_FINAL_SCRIPT)
 
-    if not settings_path or not python_cmd or not final_script_path:
-        logging.error(f"AHK variables '{AHK_VAR_SETTINGS}', '{AHK_VAR_PYTHON_CMD}', or '{AHK_VAR_FINAL_SCRIPT}' are missing or invalid in '{pathfile_path}'.")
+    if not settings_path or not StartAHKScriptOutput:
+        logging.error(f"AHK variables '{AHK_VAR_SETTINGS}' or '{AHK_VAR_FINAL_SCRIPT}' are missing or invalid in '{pathfile_path}'.")
         return None
     
     # Replace forward slashes with correct OS separators, just in case
     settings_path = settings_path.replace('/', os.sep)
     
     logging.info(f"Settings path (from AHK): {settings_path}")
-    logging.info(f"Python command (from AHK): {python_cmd}")
-    logging.info(f"Final Script path (from AHK): {final_script_path}")
+    logging.info(f"Final Script path (from AHK): {StartAHKScriptOutput}")
 
-    return settings_path, python_cmd, final_script_path
+    return settings_path, StartAHKScriptOutput
 
 def load_settings_json(settings_json_path):
     """
@@ -185,7 +184,7 @@ def load_settings_json(settings_json_path):
         settings_json_path (str): The path to the settings.json file.
 
     Returns:
-        tuple or None: (settings_data, settings_abs_path) if successful, else None.
+        tuple or None: (json_data, settings_abs_path) if successful, else None.
     """
     logging.info(f"Attempting to load settings.json from: {settings_json_path}")
     settings_abs_path = os.path.abspath(settings_json_path)
@@ -196,10 +195,10 @@ def load_settings_json(settings_json_path):
 
     try:
         with open(settings_abs_path, 'r', encoding='utf-8') as f:
-            settings_data = json.load(f)
+            json_data = json.load(f)
         
         logging.info(f"settings.json loaded successfully from: {settings_abs_path}")
-        return settings_data, settings_abs_path
+        return json_data, settings_abs_path
     
     except json.JSONDecodeError as e:
         logging.error(f"JSON Decode Error in {settings_abs_path}: {e}")
@@ -208,50 +207,49 @@ def load_settings_json(settings_json_path):
         logging.error(f"Error reading settings.json file: {e}")
         return None
 
-def find_config_dir_path(settings, config_type_name):
+def find_config_dir_path(settings, json_keyConfig_name):
     """
     Searches for the configuration directory path (relative to CWD) within the 
-    settings.json structure, using the 'name' field as the folder name if present,
-    otherwise using 'type'.
+    settings.json structure, using 'name' or 'type'.
     """
     for item in settings.get('structure', []):
-        if item.get('type') == config_type_name:
-            # La clé 'type' reste la référence logique (CONFIG_TYPE) pour trouver l'élément.
-            # Le chemin relatif est maintenant déterminé par get_folder_name.
+        if item.get('type') == json_keyConfig_name:
+            # The 'type' key remains the logical reference to find the element.
+            # The relative path is determined by get_folder_name.
             folder_name = get_folder_name(item) 
             if folder_name:
                 return folder_name
             else:
-                # Si ni 'name' ni 'type' n'est trouvé, cela est une erreur.
+                # If neither 'name' nor 'type' is found, this is an error.
                 return None 
     return None
 
 def get_expected_paths(structure, base_path="."):
     """
-    Génère une liste de chemins de dossiers attendus à partir de la structure JSON.
-    Utilise 'name' comme nom de dossier si présent, sinon 'type', et reconstruit 
-    le chemin de manière récursive.
+    Generates a list of expected folder paths from the JSON structure.
+    Uses 'name' as the folder name if present, otherwise 'type', and reconstructs 
+    the path recursively.
     """
     expected_paths = []
     for item in structure:
-        # Utiliser la nouvelle fonction de validation
+        # Use the new validation function
         include_status = is_valid_include_setting(item)
         if include_status == 'ERROR':
-            raise ValueError(f"Erreur de validation: La clé 'is_include' doit être 'true' ou 'false' (actuel: {item.get('is_include')}) dans l'élément: {item.get('type')}.")
+            raise ValueError(f"Validation Error: 'is_include' key must be 'true' or 'false' (current: {item.get('is_include')}) in element: {item.get('type')}.")
         
-        # Si 'is_include' est 'false', nous n'incluons pas le chemin.
+        # If 'is_include' is 'false', we do not include the path.
         if include_status is False:
-            # Nous incluons le chemin, mais nous n'inclurons PAS ses includes AHK plus tard.
-            pass # Continuer pour vérifier les enfants car ils peuvent être "true"
+            # We include the path, but we will NOT include its AHK includes later.
+            pass # Continue to check children as they might be "true"
         
         item_folder_name = get_folder_name(item)
         
-        # Le dossier doit toujours être vérifié/créé s'il a un nom de dossier valide.
+        # The folder must always be checked/created if it has a valid folder name.
         if item_folder_name:
             current_path = os.path.join(base_path, item_folder_name)
             expected_paths.append(current_path)
             if item.get('children'):
-                # Récursion, peu importe le statut 'is_include' du parent
+                # Recursion, regardless of the parent's 'is_include' status
                 expected_paths.extend(get_expected_paths(item['children'], current_path))
                 
     return expected_paths
@@ -291,20 +289,20 @@ def compare_structure(expected_paths, is_initial_run):
 
 def create_structure(settings):
     """
-    Crée les dossiers en se basant sur la structure définie dans settings.json.
-    La création est inconditionnelle par rapport à 'is_include', car le dossier 
-    doit exister pour la structure.
+    Creates folders based on the structure defined in settings.json.
+    Creation is unconditional regarding 'is_include', as the folder
+    must exist for the structure.
     """
     logging.info("Starting folder structure creation...")
     
     def recursive_create(structure, base_path="."):
         for item in structure:
-            # 1. Vérification de la validité de la clé, mais sans action ici.
-            # L'erreur de validation est levée dans get_expected_paths, que main_build intercepte.
+            # 1. Key validation, but no action here.
+            # The validation error is raised in get_expected_paths, which main_build intercepts.
             include_status = is_valid_include_setting(item)
             
-            # Si le statut est ERROR, on ne fait rien pour la création/récursion
-            # car le process s'arrêtera juste après dans main_build.
+            # If status is ERROR, do nothing for creation/recursion
+            # as the process will stop in main_build shortly.
             if include_status == 'ERROR':
                 continue
                 
@@ -313,14 +311,14 @@ def create_structure(settings):
             if item_folder_name:
                 folder_path = os.path.join(base_path, item_folder_name)
                 try:
-                    # 2. Création/Vérification du dossier (TOUJOURS FAITE)
+                    # 2. Folder creation/verification (ALWAYS DONE)
                     os.makedirs(folder_path, exist_ok=True)
                     logging.info(f"Folder created/verified: {folder_path}")
                 except Exception as e:
                     logging.error(f"Error creating folder {folder_path}: {e}")
-                    raise # Renvoyer l'erreur à la fonction main
+                    raise # Rethrow the error to the main function
                 
-                # 3. Récursion (TOUJOURS FAITE)
+                # 3. Recursion (ALWAYS DONE)
                 if item.get('children'):
                     recursive_create(item['children'], folder_path)
 
@@ -328,87 +326,75 @@ def create_structure(settings):
         recursive_create(settings.get('structure', []))
         logging.info("Folder structure creation finished.")
     except Exception:
-        # S'assurer que le script s'arrête en cas d'erreur de création de dossier
+        # Ensure the script stops on a folder creation error
         exit_script(EXIT_CODE_ERROR)
 
 def clean_ahk_path(path_to_clean):
     """
-    Cleans a file path for use in an AutoHotkey (v2) literal string.
-    1. Normalizes the path (removes './' and '..').
-    2. Escapes backslashes for AHK string syntax.
-
-    Args:
-        path_to_clean (str): The file path to prepare.
-
-    Returns:
-        str: The AHK-formatted path.
+    Cleans a file path for use in an AHK string by replacing single
+    backslashes with double backslashes.
     """
-    # 1. Normalize the path to remove './' and '..' (like in './.config')
-    normalized_path = os.path.normpath(path_to_clean)
-    
-    # 2. Escape backslashes (convert \ to \\)
-    ahk_escaped_path = normalized_path.replace('\\\\', '\\\\\\')
-    
-    return ahk_escaped_path
+    return path_to_clean.replace(os.sep, "\\\\")
 
-def post_build_actions(source_path, settings_data, is_initial_run, python_cmd_used, final_script_path):
+def post_build_actions(source_path, json_data, is_initial_run, StartAHKScriptOutput):
     """
-    Moves/copies the source settings.json to its final location and creates path.ahk.
+    Handles final actions: moves settings.json on initial run and writes the
+    root 'paths.ahk' file with a relative path to settings.json for portability.
     """
-    # 1. Copy settings.json to its final destination
-    config_relative_path = find_config_dir_path(settings_data, CONFIG_TYPE)
+    # 1. Find the config directory path
+    config_relative_path = find_config_dir_path(json_data, json_keyConfig)
     if not config_relative_path:
-        logging.error(f"The path for directory type '{CONFIG_TYPE}' was not found in settings.json.")
+        logging.error(f"Could not find the configuration directory path ('type': '{json_keyConfig}') in settings.json during post-build.")
         exit_script(EXIT_CODE_ERROR)
-        
-    final_config_dir = os.path.join(os.getcwd(), config_relative_path)
-    # Ensure the final absolute path is cleaned of '.' and '..'
-    final_settings_path = os.path.normpath(os.path.join(final_config_dir, SETTINGS_FILE))
 
-    if is_initial_run:
-        # In 'Initial Run' mode, we MOVE the source file to its final destination.
+    config_absolute_path = os.path.join(os.getcwd(), config_relative_path)
+    
+    # 2. Define the destination for settings.json
+    json_destination_path = os.path.join(config_absolute_path, SETTINGS_FILE)
+
+    # 3. Move settings.json if it's an initial run and the source is different
+    if is_initial_run and os.path.abspath(source_path) != os.path.abspath(json_destination_path):
         try:
-            # The structure is already created by create_structure
-            # os.makedirs(os.path.dirname(final_settings_path), exist_ok=True) 
-            shutil.move(source_path, final_settings_path)
-            logging.info(f"settings.json MOVED from '{source_path}' to '{final_settings_path}' (Initial Mode).")
+            shutil.move(source_path, json_destination_path)
+            logging.info(f"Successfully moved '{os.path.basename(source_path)}' to '{config_relative_path}'.")
         except Exception as e:
-            logging.error(f"Error while moving settings.json: {e}")
+            logging.error(f"Error moving '{os.path.basename(source_path)}' to '{config_relative_path}': {e}")
             exit_script(EXIT_CODE_ERROR)
-    elif not os.path.exists(final_settings_path):
-        # If not initial run, but destination is missing, copy it (restore/repair case).
-        try:
-            shutil.copy2(source_path, final_settings_path)
-            logging.info(f"settings.json copied from '{source_path}' to '{final_settings_path}'.")
-        except Exception as e:
-            logging.error(f"Error while copying settings.json: {e}")
-            exit_script(EXIT_CODE_ERROR)
-    else:
-        logging.info(f"settings.json already exists at destination: {final_settings_path}. No copy/move action taken.")
-        
-    # 2. Create/Update path.ahk (the new path file)
     
-    # IMPORTANT: Paths in the AHK file must escape backslashes for AHK literal strings.
-    # Ex: C:\path\to -> "C:\\path\\to"
-    final_settings_path_ahk = clean_ahk_path(final_settings_path)
-    final_script_path_ahk = clean_ahk_path(final_script_path)
+    # 4. Write the PATHFILE (e.g., paths.ahk) to the ROOT directory
+    pathfile_output_path = os.path.join(os.getcwd(), PATHFILE)
     
-    ahk_content = f'{AHK_VAR_SETTINGS} := "{final_settings_path_ahk}"\n'
-    ahk_content += f'{AHK_VAR_PYTHON_CMD} := "{python_cmd_used}"\n'
-    ahk_content += f'{AHK_VAR_FINAL_SCRIPT} := "{final_script_path_ahk}"\n'
-    
-    paths_ahk_output_path = os.path.join(os.getcwd(), PATHFILE)
+    # Create a relative path for settings.json from the project root for AHK
+    settings_path_for_ahk = os.path.relpath(json_destination_path, os.getcwd())
+    settings_path_for_ahk = settings_path_for_ahk.replace(os.sep, "\\")
+
+    # The content for paths.ahk using the relative path
+    pathfile_content = (
+        f'{AHK_VAR_SETTINGS} := "{settings_path_for_ahk}"\n'
+        f'{AHK_VAR_FINAL_SCRIPT} := "{StartAHKScriptOutput}"'
+    )
     
     try:
-        with open(paths_ahk_output_path, 'w', encoding='utf-8') as f:
-            f.write(ahk_content)
-        logging.info(f"AHK config file '{PATHFILE}' created/updated successfully.")
+        # Check if the file exists and if its content is the same to avoid unnecessary writes
+        rewrite = True
+        if os.path.exists(pathfile_output_path):
+            with open(pathfile_output_path, 'r', encoding='utf-8') as f:
+                if f.read().strip() == pathfile_content.strip():
+                    rewrite = False
+                    logging.info(f"'{PATHFILE}' is already up-to-date. Skipping write.")
+        
+        if rewrite:
+            with open(pathfile_output_path, 'w', encoding='utf-8') as f:
+                f.write(pathfile_content)
+            logging.info(f"Successfully wrote configuration to '{PATHFILE}'.")
+            
     except Exception as e:
-        logging.error(f"Error writing AHK file '{PATHFILE}': {e}")
+        logging.error(f"Error writing to '{PATHFILE}': {e}")
         exit_script(EXIT_CODE_ERROR)
-
-    return final_settings_path
-
+        
+    # Return the absolute path for the rest of the Python script's execution,
+    # and the relative path for the config directory.
+    return json_destination_path, config_relative_path
 
 # =================================================================
 # HELPER FUNCTIONS FOR SETTINGS.AHK GENERATION
@@ -416,9 +402,9 @@ def post_build_actions(source_path, settings_data, is_initial_run, python_cmd_us
 
 def get_folder_name(item):
     """
-    Détermine le nom du dossier à utiliser. Utilise 'name' si présent, sinon 'type'.
+    Determines the folder name to use. Prefers 'name' if present, otherwise 'type'.
     """
-    # Utilise 'name' si il est présent et non vide, sinon utilise 'type'.
+    # Use 'name' if it is present and non-empty, otherwise use 'type'.
     return item.get('name') or item.get('type')
 
 def format_ahk_value(value):
@@ -438,16 +424,16 @@ def format_ahk_value(value):
 
 def is_valid_path_setting(item):
     """
-    Valide et retourne la valeur booléenne de 'is_path'.
-    Par défaut à True si la clé est absente.
-    Retourne 'ERROR' en cas de valeur invalide.
+    Validates and returns the boolean value of 'is_path'.
+    Defaults to True if the key is absent.
+    Returns 'ERROR' for invalid values.
     """
-    path_setting = item.get('is_path', 'true') # Par défaut 'true' si absente
+    path_setting = item.get('is_path', 'true') # Default 'true' if absent
     
     if not isinstance(path_setting, str) or not path_setting.strip():
         if 'is_path' not in item:
-            return True # Clé absente est valide, vaut True
-        return 'ERROR' # Vide ou non-string
+            return True # Absent key is valid, defaults to True
+        return 'ERROR' # Empty or non-string
         
     path_setting_lower = path_setting.lower()
     
@@ -456,15 +442,15 @@ def is_valid_path_setting(item):
     elif path_setting_lower == 'false':
         return False
     else:
-        return 'ERROR' # Chaîne invalide
+        return 'ERROR' # Invalid string
 
 def generate_flat_path_structure(structure_list, parent_var_name):
     """
-    Fonction récursive pour générer le code AHK pour les variables de chemin statiques
-    au sein de la classe racine unique.
+    Recursive function to generate AHK code for static path variables
+    within the single root class.
     """
     ahk_code_lines = []
-    indent = "    " # 4 espaces
+    indent = "    " # 4 spaces
 
     for item in structure_list:
         class_type = item.get("type")
@@ -475,10 +461,10 @@ def generate_flat_path_structure(structure_list, parent_var_name):
         path_status = is_valid_path_setting(item)
         
         if path_status == 'ERROR':
-            # Cette erreur devrait être fatale et arrêtée plus tôt,
-            # mais c'est un filet de sécurité.
+            # This error should be fatal and caught earlier,
+            # but this is a safety net.
             logging.error(f"Invalid 'is_path' value for type '{class_type}'. Skipping.")
-            # Ne pas récurser si la configuration est invalide.
+            # Do not recurse if config is invalid.
             continue
             
         item_folder_name = get_folder_name(item)
@@ -489,32 +475,30 @@ def generate_flat_path_structure(structure_list, parent_var_name):
         current_var_name = class_type
         children_to_process = item.get("children", [])
         
-        # Déterminer le parent_var_name pour les enfants
-        next_parent_var_name = parent_var_name # Par défaut, hérite du parent
+        # Determine the parent_var_name for children
+        next_parent_var_name = parent_var_name # Inherit parent by default
         
         if path_status is True:
-            # -----------------------------------------------------------------
-            # 'is_path' est 'true', on génère la variable de chemin statique
-            # -----------------------------------------------------------------
+            # 'is_path' is 'true', generate the static path variable
             
-            # Le nom du dossier. AHKv2 peut concaténer une variable et une chaîne:
+            # The folder name. AHKv2 can concatenate a variable and a string:
             # this.Library "\Core"
             ahk_path_segment = f'\\{item_folder_name}'
             
-            # Générer la ligne
-            # ex: static Core := this.Library "\Core"
+            # Generate the line
+            # e.g.: static Core := this.Library "\Core"
             line = f'{indent}static {current_var_name} := {parent_var_name} "{ahk_path_segment}"'
             ahk_code_lines.append(line)
             
-            # Le parent pour les enfants de cet item devient cet item
+            # The parent for this item's children becomes this item
             next_parent_var_name = f'this.{current_var_name}'
             
         # else: (path_status is False)
-            # On ne génère pas de ligne pour 'current_var_name'.
-            # 'next_parent_var_name' reste 'parent_var_name' (le parent de cet item).
-            # Les enfants seront donc rattachés au grand-parent.
+            # No line is generated for 'current_var_name'.
+            # 'next_parent_var_name' remains 'parent_var_name' (this item's parent).
+            # Children will be attached to the grandparent.
 
-        # 3. Récursion
+        # 3. Recursion
         if children_to_process:
             ahk_code_lines.extend(generate_flat_path_structure(
                 children_to_process, 
@@ -523,656 +507,19 @@ def generate_flat_path_structure(structure_list, parent_var_name):
     
     return ahk_code_lines
 
-
-    """
-    Parcourt les dossiers supplémentaires (non définis dans settings.json)
-    et demande à l'utilisateur s'il souhaite déplacer leur contenu.
-    """
-    import shutil, os, logging
-    from tkinter import Tk, messagebox
-    # S'assurer que 'time' est importé
-    import time 
-    
-    logging.info(f"--- Démarrage de l'analyse des dossiers supplémentaires ---")
-    if not extra_folders:
-        logging.info("Aucun dossier supplémentaire trouvé. Suite.")
-        return
-
-    logging.info(f"Trouvé {len(extra_folders)} dossier(s) supplémentaire(s) : {extra_folders}")
-
-    # 1. Initialisation critique de la fenêtre racine Tkinter
-    try:
-        root = Tk()
-        root.withdraw() 
-        # CORRECTION : Forcer Tkinter à traiter tous les événements.
-        root.update()
-        logging.debug("Tkinter root initialisé et mis à jour.")
-    except Exception as e:
-        logging.error(f"Erreur lors de l'initialisation de Tkinter: {e}. Arrêt de l'analyse.")
-        return
-
-    try:
-        for folder in extra_folders:
-            # 2. Vérifier si le dossier existe toujours
-            if not os.path.exists(folder) or not os.path.isdir(folder):
-                logging.info(f"'{folder}' n'existe plus ou n'est plus un dossier. Ignoré.")
-                continue
-
-            # 3. Demander pour déplacer
-            move_q = (
-                f"Le dossier suivant n'est pas défini dans settings.json :\n\n"
-                f"{os.path.abspath(folder)}\n\n"
-                f"Voulez-vous déplacer son contenu vers un dossier de projet valide ?"
-            )
-            
-            # Utiliser root comme parent
-            if not messagebox.askyesno("Dossier Inattendu Trouvé", move_q, parent=root): 
-                logging.info(f"L'utilisateur a choisi d'ignorer le déplacement du contenu de '{folder}'.")
-                continue 
-
-            logging.info(f"L'utilisateur a choisi de déplacer le contenu de '{folder}'.")
-            
-            # 4. Si Oui, afficher le sélecteur de destination
-            logging.info("Affichage du sélecteur...")
-            destination = select_destination_dialog(root, expected_paths, folder)
-
-            if not destination:
-                logging.info(f"L'utilisateur a annulé la sélection de la destination pour '{folder}'.")
-                continue 
-
-            logging.info(f"L'utilisateur a sélectionné la destination '{destination}' pour le contenu de '{folder}'.")
-
-            # 5. Déplacer le contenu (Logique inchangée)
-            full_destination_path = os.path.join(os.getcwd(), destination)
-            try:
-                os.makedirs(full_destination_path, exist_ok=True)
-                
-                items_moved = 0
-                
-                if not os.listdir(folder):
-                    logging.info(f"Le dossier '{folder}' est vide. Déplacement ignoré.")
-                else:
-                    for item_name in os.listdir(folder):
-                        source_item = os.path.join(folder, item_name)
-                        dest_item = os.path.join(full_destination_path, item_name)
-                        
-                        if os.path.exists(dest_item):
-                            logging.warning(f"L'élément '{item_name}' existe déjà dans '{full_destination_path}'. Déplacement ignoré.")
-                            continue
-                            
-                        shutil.move(source_item, dest_item)
-                        logging.info(f"Déplacé : {source_item} -> {dest_item}")
-                        items_moved += 1
-
-                logging.info(f"Déplacement terminé pour '{folder}'. {items_moved} déplacé(s).")
-
-            except Exception as e:
-                logging.error(f"Erreur lors du déplacement du contenu de '{folder}' vers '{full_destination_path}': {e}")
-                messagebox.showerror("Erreur de Déplacement", f"Une erreur est survenue lors du déplacement des fichiers de '{folder}':\n\n{e}", parent=root)
-                continue 
-
-            # 6. Demander pour supprimer (Logique inchangée)
-            try:
-                if not os.listdir(folder):
-                    delete_q = f"Le dossier '{folder}' est maintenant vide.\n\nVoulez-vous le supprimer ?"
-                    if messagebox.askyesno("Supprimer le Dossier Vide", delete_q, parent=root):
-                        try:
-                            os.rmdir(folder) 
-                            logging.info(f"Dossier vide supprimé : {folder}")
-                        except Exception as e:
-                            logging.error(f"Échec de la suppression du dossier '{folder}': {e}")
-                            messagebox.showerror("Erreur de Suppression", f"Impossible de supprimer le dossier '{folder}' (non-vide ou verrouillé):\n\n{e}", parent=root)
-                else:
-                    logging.info(f"Le dossier '{folder}' n'est pas vide après le déplacement. Suppression ignorée.")
-            except Exception as e:
-                logging.error(f"Erreur lors de la vérification si le dossier '{folder}' est vide : {e}")
-
-    finally:
-        # 7. Nettoyer la fenêtre racine cachée
-        root.destroy()
-        logging.info(f"--- Fin de l'analyse des dossiers supplémentaires ---")
-    """
-    Parcourt les dossiers supplémentaires (non définis dans settings.json)
-    et demande à l'utilisateur s'il souhaite déplacer leur contenu.
-    """
-    import shutil, os, logging
-    from tkinter import Tk, messagebox
-
-    logging.info(f"--- Démarrage de l'analyse des dossiers supplémentaires ---")
-    if not extra_folders:
-        logging.info("Aucun dossier supplémentaire trouvé. Suite.")
-        return
-
-    logging.info(f"Trouvé {len(extra_folders)} dossier(s) supplémentaire(s) : {extra_folders}")
-
-    # 1. Initialisation critique de la fenêtre racine Tkinter
-    try:
-        root = Tk()
-        root.withdraw() # Garder la fenêtre racine cachée, mais active
-        # CORRECTION CRITIQUE (Déjà appliquée): Forcer Tkinter à traiter tous les événements.
-        root.update()
-        logging.debug("Tkinter root initialisé et mis à jour.")
-    except Exception as e:
-        logging.error(f"Erreur lors de l'initialisation de Tkinter: {e}. Arrêt de l'analyse.")
-        return
-
-    try:
-        for folder in extra_folders:
-            # 2. Vérifier si le dossier existe toujours
-            if not os.path.exists(folder) or not os.path.isdir(folder):
-                logging.info(f"'{folder}' n'existe plus ou n'est plus un dossier. Ignoré.")
-                continue
-
-            # 3. Demander pour déplacer (utilise la fenêtre racine cachée 'root')
-            move_q = (
-                f"Le dossier suivant n'est pas défini dans settings.json :\n\n"
-                f"{os.path.abspath(folder)}\n\n"
-                f"Voulez-vous déplacer son contenu vers un dossier de projet valide ?"
-            )
-            
-            if not messagebox.askyesno("Dossier Inattendu Trouvé", move_q, parent=root): 
-                logging.info(f"L'utilisateur a choisi d'ignorer le déplacement du contenu de '{folder}'.")
-                continue 
-
-            logging.info(f"L'utilisateur a choisi de déplacer le contenu de '{folder}'.")
-            
-            # 4. Si Oui, afficher le sélecteur de destination (Appel à la fonction corrigée)
-            logging.info("Affichage du sélecteur...")
-            destination = select_destination_dialog(root, expected_paths, folder)
-
-            if not destination:
-                logging.info(f"L'utilisateur a annulé la sélection de la destination pour '{folder}'.")
-                continue 
-
-            logging.info(f"L'utilisateur a sélectionné la destination '{destination}' pour le contenu de '{folder}'.")
-
-            # 5. Déplacer le contenu
-            full_destination_path = os.path.join(os.getcwd(), destination)
-            try:
-                os.makedirs(full_destination_path, exist_ok=True)
-                
-                items_moved = 0
-                
-                if not os.listdir(folder):
-                    logging.info(f"Le dossier '{folder}' est vide. Déplacement ignoré.")
-                else:
-                    for item_name in os.listdir(folder):
-                        source_item = os.path.join(folder, item_name)
-                        dest_item = os.path.join(full_destination_path, item_name)
-                        
-                        if os.path.exists(dest_item):
-                            logging.warning(f"L'élément '{item_name}' existe déjà dans '{full_destination_path}'. Déplacement ignoré.")
-                            continue
-                            
-                        shutil.move(source_item, dest_item)
-                        logging.info(f"Déplacé : {source_item} -> {dest_item}")
-                        items_moved += 1
-
-                logging.info(f"Déplacement terminé pour '{folder}'. {items_moved} déplacé(s).")
-
-            except Exception as e:
-                logging.error(f"Erreur lors du déplacement du contenu de '{folder}' vers '{full_destination_path}': {e}")
-                messagebox.showerror("Erreur de Déplacement", f"Une erreur est survenue lors du déplacement des fichiers de '{folder}':\n\n{e}", parent=root)
-                continue 
-
-            # 6. Demander pour supprimer
-            try:
-                if not os.listdir(folder):
-                    delete_q = f"Le dossier '{folder}' est maintenant vide.\n\nVoulez-vous le supprimer ?"
-                    if messagebox.askyesno("Supprimer le Dossier Vide", delete_q, parent=root):
-                        try:
-                            os.rmdir(folder) 
-                            logging.info(f"Dossier vide supprimé : {folder}")
-                        except Exception as e:
-                            logging.error(f"Échec de la suppression du dossier '{folder}': {e}")
-                            messagebox.showerror("Erreur de Suppression", f"Impossible de supprimer le dossier '{folder}' (non-vide ou verrouillé):\n\n{e}", parent=root)
-                else:
-                    logging.info(f"Le dossier '{folder}' n'est pas vide après le déplacement. Suppression ignorée.")
-            except Exception as e:
-                logging.error(f"Erreur lors de la vérification si le dossier '{folder}' est vide : {e}")
-
-    finally:
-        # 7. Nettoyer la fenêtre racine cachée
-        root.destroy()
-        logging.info(f"--- Fin de l'analyse des dossiers supplémentaires ---")
-    """
-    Parcourt les dossiers supplémentaires (non définis dans settings.json)
-    et demande à l'utilisateur s'il souhaite déplacer leur contenu.
-    """
-    import shutil, os, logging
-    from tkinter import Tk, messagebox
-
-    logging.info(f"--- Démarrage de l'analyse des dossiers supplémentaires ---")
-    if not extra_folders:
-        logging.info("Aucun dossier supplémentaire trouvé. Suite.")
-        return
-
-    logging.info(f"Trouvé {len(extra_folders)} dossier(s) supplémentaire(s) : {extra_folders}")
-
-    # 1. Initialisation critique de la fenêtre racine Tkinter
-    try:
-        root = Tk()
-        root.withdraw() # Garder la fenêtre racine cachée, mais active
-        # CORRECTION CRITIQUE (Déjà appliquée): Forcer Tkinter à traiter tous les événements.
-        root.update()
-        logging.debug("Tkinter root initialisé et mis à jour.")
-    except Exception as e:
-        logging.error(f"Erreur lors de l'initialisation de Tkinter: {e}. Arrêt de l'analyse.")
-        return
-
-    try:
-        for folder in extra_folders:
-            # 2. Vérifier si le dossier existe toujours
-            if not os.path.exists(folder) or not os.path.isdir(folder):
-                logging.info(f"'{folder}' n'existe plus ou n'est plus un dossier. Ignoré.")
-                continue
-
-            # 3. Demander pour déplacer (utilise la fenêtre racine cachée 'root')
-            move_q = (
-                f"Le dossier suivant n'est pas défini dans settings.json :\n\n"
-                f"{os.path.abspath(folder)}\n\n"
-                f"Voulez-vous déplacer son contenu vers un dossier de projet valide ?"
-            )
-            
-            if not messagebox.askyesno("Dossier Inattendu Trouvé", move_q, parent=root): 
-                logging.info(f"L'utilisateur a choisi d'ignorer le déplacement du contenu de '{folder}'.")
-                continue 
-
-            logging.info(f"L'utilisateur a choisi de déplacer le contenu de '{folder}'.")
-            
-            # 4. Si Oui, afficher le sélecteur de destination (Appel à la fonction corrigée)
-            logging.info("Affichage du sélecteur...")
-            destination = select_destination_dialog(root, expected_paths, folder)
-
-            if not destination:
-                logging.info(f"L'utilisateur a annulé la sélection de la destination pour '{folder}'.")
-                continue 
-
-            logging.info(f"L'utilisateur a sélectionné la destination '{destination}' pour le contenu de '{folder}'.")
-
-            # 5. Déplacer le contenu
-            full_destination_path = os.path.join(os.getcwd(), destination)
-            try:
-                os.makedirs(full_destination_path, exist_ok=True)
-                
-                items_moved = 0
-                
-                if not os.listdir(folder):
-                    logging.info(f"Le dossier '{folder}' est vide. Déplacement ignoré.")
-                else:
-                    for item_name in os.listdir(folder):
-                        source_item = os.path.join(folder, item_name)
-                        dest_item = os.path.join(full_destination_path, item_name)
-                        
-                        if os.path.exists(dest_item):
-                            logging.warning(f"L'élément '{item_name}' existe déjà dans '{full_destination_path}'. Déplacement ignoré.")
-                            continue
-                            
-                        shutil.move(source_item, dest_item)
-                        logging.info(f"Déplacé : {source_item} -> {dest_item}")
-                        items_moved += 1
-
-                logging.info(f"Déplacement terminé pour '{folder}'. {items_moved} déplacé(s).")
-
-            except Exception as e:
-                logging.error(f"Erreur lors du déplacement du contenu de '{folder}' vers '{full_destination_path}': {e}")
-                messagebox.showerror("Erreur de Déplacement", f"Une erreur est survenue lors du déplacement des fichiers de '{folder}':\n\n{e}", parent=root)
-                continue 
-
-            # 6. Demander pour supprimer
-            try:
-                if not os.listdir(folder):
-                    delete_q = f"Le dossier '{folder}' est maintenant vide.\n\nVoulez-vous le supprimer ?"
-                    if messagebox.askyesno("Supprimer le Dossier Vide", delete_q, parent=root):
-                        try:
-                            os.rmdir(folder) 
-                            logging.info(f"Dossier vide supprimé : {folder}")
-                        except Exception as e:
-                            logging.error(f"Échec de la suppression du dossier '{folder}': {e}")
-                            messagebox.showerror("Erreur de Suppression", f"Impossible de supprimer le dossier '{folder}' (non-vide ou verrouillé):\n\n{e}", parent=root)
-                else:
-                    logging.info(f"Le dossier '{folder}' n'est pas vide après le déplacement. Suppression ignorée.")
-            except Exception as e:
-                logging.error(f"Erreur lors de la vérification si le dossier '{folder}' est vide : {e}")
-
-    finally:
-        # 7. Nettoyer la fenêtre racine cachée
-        root.destroy()
-        logging.info(f"--- Fin de l'analyse des dossiers supplémentaires ---")
-
-    """
-    Parcourt les dossiers supplémentaires (non définis dans settings.json)
-    et demande à l'utilisateur s'il souhaite déplacer leur contenu.
-    """
-    import shutil, os, logging
-    from tkinter import Tk, messagebox
-
-    logging.info(f"--- Démarrage de l'analyse des dossiers supplémentaires ---")
-    if not extra_folders:
-        logging.info("Aucun dossier supplémentaire trouvé. Suite.")
-        return
-
-    logging.info(f"Trouvé {len(extra_folders)} dossier(s) supplémentaire(s) : {extra_folders}")
-
-    # 1. Initialisation critique de la fenêtre racine Tkinter
-    try:
-        root = Tk()
-        root.withdraw() # Garder la fenêtre racine cachée, mais active
-        # CORRECTION CRITIQUE : Forcer Tkinter à traiter tous les événements.
-        # Cela est ESSENTIEL pour s'assurer que les boîtes de dialogue modales (Toplevel/messagebox)
-        # se dessinent correctement avant que l'exécution ne soit bloquée.
-        root.update()
-        logging.debug("Tkinter root initialisé et mis à jour.")
-    except Exception as e:
-        logging.error(f"Erreur lors de l'initialisation de Tkinter: {e}. Arrêt de l'analyse.")
-        return
-
-    try:
-        for folder in extra_folders:
-            # 2. Vérifier si le dossier existe toujours
-            if not os.path.exists(folder) or not os.path.isdir(folder):
-                logging.info(f"'{folder}' n'existe plus ou n'est plus un dossier. Ignoré.")
-                continue
-
-            # 3. Demander pour déplacer (utilise la fenêtre racine cachée 'root')
-            move_q = (
-                f"Le dossier suivant n'est pas défini dans settings.json :\n\n"
-                f"{os.path.abspath(folder)}\n\n"
-                f"Voulez-vous déplacer son contenu vers un dossier de projet valide ?"
-            )
-            
-            if not messagebox.askyesno("Dossier Inattendu Trouvé", move_q, parent=root): 
-                logging.info(f"L'utilisateur a choisi d'ignorer le déplacement du contenu de '{folder}'.")
-                continue 
-
-            logging.info(f"L'utilisateur a choisi de déplacer le contenu de '{folder}'.")
-            
-            # 4. Si Oui, afficher le sélecteur de destination (Appel à la fonction corrigée)
-            logging.info("Affichage du sélecteur...")
-            destination = select_destination_dialog(root, expected_paths, folder)
-
-            if not destination:
-                logging.info(f"L'utilisateur a annulé la sélection de la destination pour '{folder}'.")
-                continue 
-
-            logging.info(f"L'utilisateur a sélectionné la destination '{destination}' pour le contenu de '{folder}'.")
-
-            # 5. Déplacer le contenu (Logique inchangée)
-            full_destination_path = os.path.join(os.getcwd(), destination)
-            try:
-                os.makedirs(full_destination_path, exist_ok=True)
-                
-                items_moved = 0
-                items_skipped = 0
-                
-                # ... (Logique de déplacement inchangée : listdir, shutil.move, etc.)
-                
-                # Vérifier si le dossier à déplacer est vide avant de lister
-                if not os.listdir(folder):
-                    logging.info(f"Le dossier '{folder}' est vide. Déplacement ignoré.")
-                else:
-                    for item_name in os.listdir(folder):
-                        source_item = os.path.join(folder, item_name)
-                        dest_item = os.path.join(full_destination_path, item_name)
-                        
-                        if os.path.exists(dest_item):
-                            logging.warning(f"L'élément '{item_name}' existe déjà dans '{full_destination_path}'. Déplacement ignoré.")
-                            items_skipped += 1
-                            continue
-                            
-                        # Utilisation de shutil.move() pour déplacer l'élément
-                        shutil.move(source_item, dest_item)
-                        logging.info(f"Déplacé : {source_item} -> {dest_item}")
-                        items_moved += 1
-
-                logging.info(f"Déplacement terminé pour '{folder}'. {items_moved} déplacé(s), {items_skipped} ignoré(s).")
-
-            except Exception as e:
-                logging.error(f"Erreur lors du déplacement du contenu de '{folder}' vers '{full_destination_path}': {e}")
-                messagebox.showerror("Erreur de Déplacement", f"Une erreur est survenue lors du déplacement des fichiers de '{folder}':\n\n{e}", parent=root)
-                continue 
-
-            # 6. Demander pour supprimer (Logique inchangée)
-            try:
-                if not os.listdir(folder):
-                    delete_q = f"Le dossier '{folder}' est maintenant vide.\n\nVoulez-vous le supprimer ?"
-                    if messagebox.askyesno("Supprimer le Dossier Vide", delete_q, parent=root):
-                        try:
-                            # os.rmdir ne supprime que les dossiers vides
-                            os.rmdir(folder) 
-                            logging.info(f"Dossier vide supprimé : {folder}")
-                        except Exception as e:
-                            logging.error(f"Échec de la suppression du dossier '{folder}': {e}")
-                            messagebox.showerror("Erreur de Suppression", f"Impossible de supprimer le dossier '{folder}' (non-vide ou verrouillé):\n\n{e}", parent=root)
-                else:
-                    logging.info(f"Le dossier '{folder}' n'est pas vide après le déplacement. Suppression ignorée.")
-            except Exception as e:
-                logging.error(f"Erreur lors de la vérification si le dossier '{folder}' est vide : {e}")
-
-    finally:
-        # 7. Nettoyer la fenêtre racine cachée
-        root.destroy()
-        logging.info(f"--- Fin de l'analyse des dossiers supplémentaires ---")
-
-    """
-    Parcourt les dossiers supplémentaires (non définis dans settings.json)
-    et demande à l'utilisateur s'il souhaite déplacer leur contenu.
-    """
-    import shutil, os, logging
-    from tkinter import Tk, messagebox
-
-    logging.info(f"--- Démarrage de l'analyse des dossiers supplémentaires ---")
-    if not extra_folders:
-        logging.info("Aucun dossier supplémentaire trouvé. Suite.")
-        return
-
-    logging.info(f"Trouvé {len(extra_folders)} dossier(s) supplémentaire(s) : {extra_folders}")
-
-    # 1. Nous avons besoin d'une fenêtre racine cachée pour nos boîtes de dialogue
-    try:
-        root = Tk()
-        root.withdraw() # Garder la fenêtre racine cachée, mais active
-    except Exception as e:
-        logging.error(f"Erreur lors de l'initialisation de Tkinter: {e}. Arrêt de l'analyse.")
-        return
-
-    try:
-        for folder in extra_folders:
-            # 2. Vérifier si le dossier existe toujours
-            # Utilisation de os.path.isdir pour une vérification plus stricte
-            if not os.path.exists(folder) or not os.path.isdir(folder):
-                logging.info(f"'{folder}' n'existe plus ou n'est plus un dossier. Ignoré.")
-                continue
-
-            # 3. Demander pour déplacer
-            move_q = (
-                f"Le dossier suivant n'est pas défini dans settings.json :\n\n"
-                f"{os.path.abspath(folder)}\n\n"
-                f"Voulez-vous déplacer son contenu vers un dossier de projet valide ?"
-            )
-            
-            # Utiliser root comme parent pour l'askyesno
-            if not messagebox.askyesno("Dossier Inattendu Trouvé", move_q, parent=root): 
-                logging.info(f"L'utilisateur a choisi d'ignorer le déplacement du contenu de '{folder}'.")
-                continue 
-
-            logging.info(f"L'utilisateur a choisi de déplacer le contenu de '{folder}'.")
-            
-            # 4. Si Oui, afficher le sélecteur de destination
-            logging.info("Affichage du sélecteur...")
-            # Appel à la fonction corrigée
-            destination = select_destination_dialog(root, expected_paths, folder)
-
-            if not destination:
-                logging.info(f"L'utilisateur a annulé la sélection de la destination pour '{folder}'.")
-                continue 
-
-            logging.info(f"L'utilisateur a sélectionné la destination '{destination}' pour le contenu de '{folder}'.")
-
-            # 5. Déplacer le contenu
-            full_destination_path = os.path.join(os.getcwd(), destination)
-            try:
-                os.makedirs(full_destination_path, exist_ok=True)
-                
-                items_moved = 0
-                items_skipped = 0
-                
-                # Vérifier si le dossier à déplacer est vide avant de lister
-                if not os.listdir(folder):
-                    logging.info(f"Le dossier '{folder}' est vide. Déplacement ignoré.")
-                    items_skipped = 0
-                else:
-                    for item_name in os.listdir(folder):
-                        source_item = os.path.join(folder, item_name)
-                        dest_item = os.path.join(full_destination_path, item_name)
-                        
-                        if os.path.exists(dest_item):
-                            logging.warning(f"L'élément '{item_name}' existe déjà dans '{full_destination_path}'. Déplacement ignoré.")
-                            items_skipped += 1
-                            continue
-                            
-                        shutil.move(source_item, dest_item)
-                        logging.info(f"Déplacé : {source_item} -> {dest_item}")
-                        items_moved += 1
-
-                logging.info(f"Déplacement terminé pour '{folder}'. {items_moved} déplacé(s), {items_skipped} ignoré(s).")
-
-            except Exception as e:
-                logging.error(f"Erreur lors du déplacement du contenu de '{folder}' vers '{full_destination_path}': {e}")
-                messagebox.showerror("Erreur de Déplacement", f"Une erreur est survenue lors du déplacement des fichiers de '{folder}':\n\n{e}", parent=root)
-                continue 
-
-            # 6. Demander pour supprimer
-            try:
-                # Re-vérifier si le dossier est vide APRES le déplacement
-                if not os.listdir(folder):
-                    delete_q = f"Le dossier '{folder}' est maintenant vide.\n\nVoulez-vous le supprimer ?"
-                    if messagebox.askyesno("Supprimer le Dossier Vide", delete_q, parent=root):
-                        try:
-                            # Utiliser os.rmdir car il ne supprime que les dossiers vides
-                            os.rmdir(folder) 
-                            logging.info(f"Dossier vide supprimé : {folder}")
-                        except Exception as e:
-                            logging.error(f"Échec de la suppression du dossier '{folder}': {e}")
-                            messagebox.showerror("Erreur de Suppression", f"Impossible de supprimer le dossier '{folder}' (il est peut-être à nouveau non-vide ou verrouillé):\n\n{e}", parent=root)
-                else:
-                    logging.info(f"Le dossier '{folder}' n'est pas vide après le déplacement. Suppression ignorée.")
-            except Exception as e:
-                logging.error(f"Erreur lors de la vérification si le dossier '{folder}' est vide : {e}")
-
-    finally:
-        # 7. Nettoyer la fenêtre racine cachée
-        root.destroy()
-        logging.info(f"--- Fin de l'analyse des dossiers supplémentaires ---")
-    """
-    Parcourt les dossiers supplémentaires (non définis dans settings.json)
-    et demande à l'utilisateur s'il souhaite déplacer leur contenu.
-    """
-    logging.info(f"--- Démarrage de l'analyse des dossiers supplémentaires ---")
-    if not extra_folders:
-        logging.info("Aucun dossier supplémentaire trouvé. Suite.")
-        return
-
-    logging.info(f"Trouvé {len(extra_folders)} dossier(s) supplémentaire(s) : {extra_folders}")
-
-    # 1. Nous avons besoin d'une fenêtre racine cachée pour nos boîtes de dialogue
-    root = Tk()
-    root.withdraw() # Garder la fenêtre racine cachée, mais active
-
-    for folder in extra_folders:
-        # 2. Vérifier si le dossier existe toujours
-        if not os.path.exists(folder) or not os.path.isdir(folder):
-            logging.info(f"'{folder}' n'existe plus ou n'est plus un dossier. Ignoré.")
-            continue
-
-        # 3. Demander pour déplacer
-        move_q = (
-            f"Le dossier suivant n'est pas défini dans settings.json :\n\n"
-            f"{folder}\n\n"
-            f"Voulez-vous déplacer son contenu vers un dossier de projet valide ?"
-        )
-        # Utiliser root comme parent pour l'askyesno
-        if not messagebox.askyesno("Dossier Inattendu Trouvé", move_q, parent=root): 
-            logging.info(f"L'utilisateur a choisi d'ignorer le déplacement du contenu de '{folder}'.")
-            continue 
-
-        logging.info(f"L'utilisateur a choisi de déplacer le contenu de '{folder}'.")
-        
-        # 4. Si Oui, afficher le sélecteur de destination
-        # Le dialogue sera modal par rapport à 'root'
-        logging.info("Affichage du sélecteur...")
-        destination = select_destination_dialog(root, expected_paths, folder)
-
-        if not destination:
-            logging.info(f"L'utilisateur a annulé la sélection de la destination pour '{folder}'.")
-            continue 
-
-        logging.info(f"L'utilisateur a sélectionné la destination '{destination}' pour le contenu de '{folder}'.")
-
-        # 5. Déplacer le contenu (Logique inchangée, elle est correcte)
-        try:
-            os.makedirs(destination, exist_ok=True)
-            
-            items_moved = 0
-            items_skipped = 0
-            
-            for item_name in os.listdir(folder):
-                source_item = os.path.join(folder, item_name)
-                dest_item = os.path.join(destination, item_name)
-                
-                if os.path.exists(dest_item):
-                    logging.warning(f"L'élément '{item_name}' existe déjà dans '{destination}'. Déplacement ignoré.")
-                    items_skipped += 1
-                    continue
-                    
-                shutil.move(source_item, dest_item)
-                logging.info(f"Déplacé : {source_item} -> {dest_item}")
-                items_moved += 1
-
-            logging.info(f"Déplacement terminé pour '{folder}'. {items_moved} déplacé(s), {items_skipped} ignoré(s).")
-
-        except Exception as e:
-            logging.error(f"Erreur lors du déplacement du contenu de '{folder}' vers '{destination}': {e}")
-            messagebox.showerror("Erreur de Déplacement", f"Une erreur est survenue lors du déplacement des fichiers de '{folder}':\n\n{e}", parent=root)
-            continue 
-
-        # 6. Demander pour supprimer (Logique inchangée, elle est correcte)
-        try:
-            if not os.listdir(folder):
-                delete_q = f"Le dossier '{folder}' est maintenant vide.\n\nVoulez-vous le supprimer ?"
-                if messagebox.askyesno("Supprimer le Dossier Vide", delete_q, parent=root):
-                    try:
-                        os.rmdir(folder)
-                        logging.info(f"Dossier vide supprimé : {folder}")
-                    except Exception as e:
-                        logging.error(f"Échec de la suppression du dossier '{folder}': {e}")
-                        messagebox.showerror("Erreur de Suppression", f"Impossible de supprimer le dossier '{folder}':\n\n{e}", parent=root)
-            else:
-                logging.info(f"Le dossier '{folder}' n'est pas vide après le déplacement. Suppression ignorée.")
-        except Exception as e:
-            logging.error(f"Erreur lors de la vérification si le dossier '{folder}' est vide : {e}")
-
-    # 7. Nettoyer la fenêtre racine cachée
-    root.destroy()
-    logging.info(f"--- Fin de l'analyse des dossiers supplémentaires ---")
-# =================================================================
-# HELPER FUNCTIONS FOR AHK INCLUDES GENERATION & COMPARISON
-# =================================================================
-
 def is_valid_include_setting(item):
     """
-    Valide et retourne si l'élément doit être inclus dans la structure (dossier) ET dans les includes AHK.
+    Validates and returns if the item should be included in the AHK includes.
     """
-    # Si la clé n'est pas présente, on suppose 'true' (l'ancienne logique)
+    # If the key is not present, default to 'true'
     include_setting = item.get('is_include', 'true') 
     
-    # Si la valeur n'est pas une chaîne ou si elle est vide après nettoyage, on retourne 'ERROR'
+    # If the value is not a string or is empty, return 'ERROR'
     if not isinstance(include_setting, str) or not include_setting.strip():
-        # Si la clé est manquante (retourne la valeur par défaut 'true'), on ne retourne pas 'ERROR'
-        # On utilise directement la valeur par défaut ici :
+        # If the key was missing (using default 'true'), do not return 'ERROR'
         if 'is_include' not in item:
             return True
-        # Sinon, c'est une clé vide ou malformée
+        # Otherwise, it's an empty or malformed key
         return 'ERROR' 
         
     include_setting_lower = include_setting.lower()
@@ -1182,12 +529,12 @@ def is_valid_include_setting(item):
     elif include_setting_lower == 'false':
         return False
     else:
-        # Toute autre chaîne est invalide
+        # Any other string is invalid
         return 'ERROR'  
 
-def extract_ahk_generated_content(settings, root_name):
+def extract_ahk_generated_content(settings, FINAL_rootName, include_file_dir):
     """
-    Génère les lignes AHK pour la structure de classe (plate) et les includes.
+    Generates the AHK lines for the flat class structure and the includes.
 
     Returns:
         tuple: (structure_lines, include_string)
@@ -1196,14 +543,14 @@ def extract_ahk_generated_content(settings, root_name):
     structure_list = settings.get("structure", [])
     
     # --- 1. New class structure generation (Flat) ---
-    if root_name != "Unknown_Root":
+    if FINAL_rootName != "Unknown_Root":
         # Start of the root class
         structure_lines.append(f'class A_Path\n{{')
         
         # Add the base rootDir
         structure_lines.append(f"    static rootDir := A_ScriptDir")
         
-        # Add any other root-level properties from settings.json (e.g., if user added custom ones)
+        # Add any other root-level properties from settings.json
         for key, val in settings.items():
             if key not in ("structure", "RootName"):
                 formatted_val = format_ahk_value(val)
@@ -1218,49 +565,45 @@ def extract_ahk_generated_content(settings, root_name):
         
         structure_lines.append(f'\n}}') # Close the root class
 
-    # --- 2. Generate #include directives (Unchanged) ---
+    # --- 2. Generate #include directives ---
     base_project_dir = os.getcwd() 
-    include_string = generate_ahk_includes(structure_list, root_name, base_project_dir, CONFIG_TYPE)
+    include_string = generate_ahk_includes(structure_list, FINAL_rootName, base_project_dir, json_keyConfig, include_file_dir)
     
     return "\n".join(structure_lines), include_string
 
-def generate_ahk_includes(structure_list, root_name, base_dir, config_type_name):
+def generate_ahk_includes(structure_list, FINAL_rootName, base_dir, json_keyConfig_name, include_file_dir):
     """
-    Analyse récursivement la structure du projet à la recherche de fichiers .ahk et génère
-    les déclarations #include, regroupées par contexte Active.
-
-    Le chemin du système de fichiers est maintenant reconstruit en utilisant la clé 'type'.
+    Recursively scans the project structure for .ahk files and generates
+    #include declarations, grouped by Active context. Paths are relative
+    to the generated include file itself.
     """
-    # Utilisation d'un dictionnaire pour grouper les includes par leur condition WinActive.
-    # La clé None est réservée aux includes globaux (pas de HotIf).
+    # Use a dictionary to group includes by their WinActive condition.
+    # The key None is reserved for global includes (no HotIf).
     grouped_includes = {}
-    
-    # Utilise %A_ScriptDir% pour rendre les inclusions relatives au script AHK principal
-    ahk_root = "%A_ScriptDir%" 
 
     def find_files_recursive(node_list, fs_path_prefix, ahk_path_prefix, inherited_win_active=None, inherited_include_status=True):
-        """Helper récursif pour trouver les fichiers et les trier."""
+        """Recursive helper to find and sort files."""
         
         for node in node_list:
             node_type = node.get("type")
 
-            #Récupère le statut du nœud actuel (True, False, ou 'ERROR')
+            # Get the status of the current node (True, False, or 'ERROR')
             node_include_status = is_valid_include_setting(node)
         
             if node_include_status == 'ERROR':
-                # L'erreur est gérée en amont, mais c'est un filet de sécurité.
-                logging.error(f"Validation d'include échouée pour le nœud {node_type}. Skipping includes.")
+                # Error is handled upstream, but this is a safety net.
+                logging.error(f"Include validation failed for node {node_type}. Skipping includes.")
                 continue
         
-            # Le statut d'inclusion effectif est la combinaison du statut hérité et du statut local.
-            # Si l'héritage est False, l'effectif doit être False.
+            # The effective include status is a combination of inherited and local status.
+            # If inheritance is False, effective must be False.
             current_effective_include_status = inherited_include_status and node_include_status
             
-            # Détermine le winActive pour ce nœud : soit celui du nœud, soit celui hérité.
+            # Determine the winActive for this node: either its own or inherited.
             current_win_active = node.get("Active", inherited_win_active)
 
-            # 1. Ignorer complètement le répertoire de configuration
-            if node_type == config_type_name:
+            # 1. Completely ignore the configuration directory
+            if node_type == json_keyConfig_name:
                 logging.info(f"Skipping include scan for node type: {node_type}")
                 if node.get("children"):
                     find_files_recursive(node.get("children"), fs_path_prefix, ahk_path_prefix, current_win_active)
@@ -1271,57 +614,63 @@ def generate_ahk_includes(structure_list, root_name, base_dir, config_type_name)
                     find_files_recursive(node.get("children"), fs_path_prefix, ahk_path_prefix, current_win_active)
                 continue
                 
-            # 2. Reconstruire le chemin du système de fichiers (fs_path)
+            # 2. Reconstruct the filesystem path (fs_path)
             current_fs_path_segment = get_folder_name(node)
             full_fs_path = os.path.normpath(os.path.join(base_dir, fs_path_prefix, current_fs_path_segment))
             
-            # 3. Reconstruire le chemin de la classe AHK (ahk_path)
+            # 3. Reconstruct the AHK class path (ahk_path)
             current_ahk_path_list = ahk_path_prefix + [node_type]
             
-            # 4. Scanner les fichiers .ahk dans le chemin du nœud
+            # 4. Scan for .ahk files in the node's path
             found_ahk_files = []
 
-            # --- Condition de scan avec le statut EFFECTIF ---
+            # --- Scan condition with EFFECTIVE status ---
             if current_effective_include_status is True and os.path.isdir(full_fs_path):
                 logging.debug(f"Scanning for AHK files in: {full_fs_path}")
-                # Parcourir uniquement le répertoire courant (pas de récursion)
+                # Iterate only the current directory (no recursion)
                 for item_name in os.listdir(full_fs_path):
                     if item_name.lower().endswith(".ahk") and os.path.isfile(os.path.join(full_fs_path, item_name)):
-                        # Créer un chemin relatif depuis la racine du projet (base_dir)
-                        relative_path = os.path.relpath(os.path.join(full_fs_path, item_name), base_dir)
-                        logging.debug(f"AHK files found: {relative_path}")
-                        # Formater pour AHK (barres obliques inverses)
-                        ahk_include_path = relative_path.replace(os.sep, "\\")
+                        
+                        # Get the full absolute path of the found .ahk file
+                        found_file_full_path = os.path.join(full_fs_path, item_name)
+                        
+                        # Create a relative path from the location of the generated include file
+                        relative_path_for_include = os.path.relpath(found_file_full_path, include_file_dir)
+                        
+                        logging.debug(f"AHK file found: {relative_path_for_include}")
+                        
+                        # Format for AHK (backslashes)
+                        ahk_include_path = relative_path_for_include.replace(os.sep, "\\")
 
-                        # Utiliser %A_ScriptDir% pour la portabilité
-                        found_ahk_files.append(f'#include "{ahk_root}\\{ahk_include_path}"')
+                        # Use the new relative path
+                        found_ahk_files.append(f'#include "{ahk_include_path}"')
             elif current_effective_include_status is False:
-                # Ce log confirmera que le scan a été sauté à cause de l'héritage de 'false'
+                # This log confirms the scan was skipped due to 'false' inheritance
                 logging.info(f"Skipping AHK includes for node type: {node_type} (effective 'is_include': 'false')")
             
-            # 5. Assigner les fichiers trouvés à la bonne liste
+            # 5. Assign found files to the correct list
             if found_ahk_files:
-                # FIX: Utiliser None pour toutes les conditions globales ("Windows" ou aucune)
+                # Use None for all global conditions ("Windows" or none)
                 if current_win_active and current_win_active.lower() == "windows":
                     context_key = None
                     context_description = "Global (Windows/Always Active)"
                 elif current_win_active:
-                    context_key = current_win_active # Contexte spécifique (ex: ahk_class Premiere Pro)
+                    context_key = current_win_active # Specific context (e.g., ahk_class Premiere Pro)
                     context_description = current_win_active
                 else:
-                    context_key = None # Contexte totalement global (pas de winActive)
+                    context_key = None # Totally global context (no winActive)
                     context_description = "Global (Always Active)"
 
                 if context_key not in grouped_includes:
                     grouped_includes[context_key] = []
                 
-                # Ajouter un commentaire de source pour faciliter la maintenance
+                # Add a source comment for easier maintenance
                 grouped_includes[context_key].append(f"\n; --- Source: {'.'.join(current_ahk_path_list)} ---")
                 grouped_includes[context_key].extend(sorted(found_ahk_files))
 
-            # 6. Récursion dans les enfants
+            # 6. Recurse into children
             if node.get("children"): 
-                # IMPORTANT : On transmet le current_win_active aux enfants
+                # IMPORTANT: Pass the current_win_active to children
                 find_files_recursive(
                     node.get("children"),
                     os.path.join(fs_path_prefix, current_fs_path_segment),
@@ -1331,44 +680,43 @@ def generate_ahk_includes(structure_list, root_name, base_dir, config_type_name)
                 )
 
     # Initial call to the recursive helper
-    # base_dir est os.getcwd() passé depuis generate_INCLUDE_OUTPUT
-    find_files_recursive(structure_list, '', [root_name])
+    find_files_recursive(structure_list, '', [FINAL_rootName])
     
-    # --- 7. Génération du contenu final des includes ---
+    # --- 7. Generation of the final includes content ---
     final_includes = []
     SECTION_SEPARATOR = "=" * 40
     
     final_includes.append(f'\n; {SECTION_SEPARATOR}\n; --- AUTO-GENERATED SCRIPT INCLUDES ---\n; {SECTION_SEPARATOR}\n')
     
-    # A. Global Includes (key None) - Mergés et sans HotIf
+    # A. Global Includes (key None) - Merged and without HotIf
     global_content = grouped_includes.pop(None, [])
     
     if global_content:
         final_includes.append(f'; --- 1. Global Includes (Always Active) ---\n')
         final_includes.extend(global_content)
         
-    # B. Context-Sensitive Includes (Tous les autres clés)
+    # B. Context-Sensitive Includes (All other keys)
     if grouped_includes:
         final_includes.append(f'\n; --- 2. Context-Sensitive (HotIf) Includes ---\n')
         
-        # Trie les clés pour un ordre de sortie stable (alphabétique)
+        # Sort keys for stable output order (alphabetical)
         sorted_keys = sorted(grouped_includes.keys())
         
         for win_active_condition in sorted_keys:
             
             includes = grouped_includes[win_active_condition]
             
-            # Début du bloc #HotIf
+            # Start of the #HotIf block
             final_includes.append(f'\n; --- Context: {win_active_condition} ---')
             final_includes.append(f'#HotIf WinActive("{win_active_condition}")')
             
-            # Ajout des includes
+            # Add the includes
             final_includes.extend(includes)
             
-            # Fin du bloc #HotIf
+            # End of the #HotIf block
             final_includes.append(f'#HotIf ; End context {win_active_condition}')
             
-    # Réinitialisation finale pour s'assurer qu'aucun contexte ne subsiste dans le thread principal du script
+    # Final reset to ensure no context persists in the script's main thread
     final_includes.append("\n#HotIf ; Final context reset")
     
     return "\n".join(final_includes)
@@ -1377,88 +725,42 @@ def generate_ahk_includes(structure_list, root_name, base_dir, config_type_name)
 # GENERATION FUNCTION
 # =================================================================
 
-def generate_INCLUDE_OUTPUT(settings, final_settings_path, python_cmd_used, is_initial_run, final_script_path):
+def generate_INCLUDE_OUTPUT(settings, Param_pathsAHK_jsonPathVar, is_initial_run, Param_StartAHKScriptOutput, config_path):
     """
-    Generates the settings.ahk file used by the AHK application,
-    including the class structure based on settings.json.
+    Generates the INCLUDE_OUTPUT file (e.g., Includes.ahk) in the config directory,
+    including the class structure and #include directives based on settings.json.
     """
-    logging.info(f"Generating output AHK file: {INCLUDE_OUTPUT}")
+    global INCLUDE_OUTPUT # Use the global variable for the output file name
+
+    # 1. Determination of the AHK INCLUDE FILE path to write
+    # This path (INCLUDE_OUTPUT) comes from sys.argv[4].
+    if not INCLUDE_OUTPUT:
+        logging.error("Global variable INCLUDE_OUTPUT is not defined. Cannot write AHK include file.")
+        exit_script(EXIT_CODE_ERROR)
+
+    # Build the output path using the config folder
+    # config_path is (e.g., ".config"), INCLUDE_OUTPUT is (e.g., ".include.ahk")
+    FINAL_INCLUDE_FILE_PATH = os.path.join(os.getcwd(), config_path, INCLUDE_OUTPUT)
+    FINAL_INCLUDE_FILE_PATH = os.path.abspath(FINAL_INCLUDE_FILE_PATH) # Clean up
     
-    # Escape the path for the AHK_SETTINGS_FILE variable
-    settings_path_ahk = clean_ahk_path(final_settings_path)
-    final_script_path_ahk = clean_ahk_path(final_script_path)
-    root_name = settings.get("RootName", "Unknown_Root")
-    output_path = os.path.join(os.getcwd(), INCLUDE_OUTPUT)
-
-    # --- 1. Base AHK content (Variables) ---
-    # Ces variables doivent TOUJOURS être mises à jour pour s'assurer que les chemins sont corrects.
-    ahk_base_vars_content = [
-        f'{AHK_VAR_SETTINGS} := "{settings_path_ahk}"',
-        f'{AHK_VAR_PYTHON_CMD} := "{python_cmd_used}"',
-        f'{AHK_VAR_FINAL_SCRIPT} := "{final_script_path_ahk}"',
-        f'AHK_ROOT_NAME := "{root_name}"'
-    ]
-
-
-    # --- 2. Générer le contenu dynamique (Classes et Includes) ---
-    generated_structure_string, generated_include_string = extract_ahk_generated_content(settings, root_name)
-
-    # --- 3. Comparaison (si non initial run et fichier existant) ---
-    should_rewrite = True
+    # Get the directory where the include file will be written
+    include_file_dir = os.path.dirname(FINAL_INCLUDE_FILE_PATH)
     
-    if not is_initial_run and os.path.exists(output_path):
-        try:
-            with open(output_path, 'r', encoding='utf-8') as f:
-                existing_content = f.read()
-            
-            # Pour la comparaison, on ne prend que la partie générée (structure + includes)
-            # On cherche le début de la structure de classe, ou le début des includes
-            
-            # Le RootName est le marqueur de début de la structure de classe
-            structure_start_marker = f'class {root_name}'
-            
-            # Le contenu généré à comparer (structure + includes)
-            new_generated_content = (
-                f'\n; Configuration structure based on {SETTINGS_FILE}' + '\n' +
-                generated_structure_string + '\n' + 
-                generated_include_string
-            ).strip()
+    rootName = settings.get("RootName", "Unknown_Root")
 
-            # Tenter de trouver le contenu existant généré
-            if generated_structure_string:
-                # Si la structure de classe est générée, on cherche à partir de son début
-                start_index = existing_content.find(structure_start_marker)
-            elif generated_include_string:
-                # Sinon, on cherche à partir du début des includes
-                start_index = existing_content.find('; ========================================================')
-            else:
-                start_index = -1 # Aucun contenu dynamique
+    # --- Debug variables ---
+    logging.debug(f"DEBUG - rootName: {rootName}")
+    logging.debug(f"DEBUG - FINAL_INCLUDE_FILE_PATH (File to Write): {FINAL_INCLUDE_FILE_PATH}")
 
-            if start_index != -1:
-                existing_generated_content = existing_content[start_index:].strip()
-                
-                # Comparaison
-                if existing_generated_content == new_generated_content:
-                    # Pour être sûr, on vérifie aussi les variables de base
-                    if all(line in existing_content for line in ahk_base_vars_content):
-                        logging.info("AHK configuration file content (Classes/Includes) is identical. Skipping rewrite.")
-                        should_rewrite = False
-                        
-        except Exception as e:
-            logging.warning(f"Error during existing AHK file comparison: {e}. Forcing rewrite.")
-            # should_rewrite reste à True
-    
-    # --- 4. Écriture du fichier si nécessaire ---
-    if not should_rewrite:
-        return # Fin de la fonction sans écriture
+    # --- 2. Generate dynamic content (Classes and Includes) ---
+    # The rootName is used for the class (A_Path)
+    generated_structure_string, generated_include_string = extract_ahk_generated_content(settings, rootName, include_file_dir)
+    logging.debug(f"DEBUG - Generated structure and include strings created.")
 
-    # --- 5. Reconstruction du contenu AHK final ---
+    # --- 3. Reconstruction of the final AHK content ---
     ahk_content_lines = [
         f'; Configuration file generated by {os.path.basename(__file__)} on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
         f'#Requires AutoHotkey v2.0\n',
-        
-        f'; Specific structure variables (Can be expanded if needed)',
-        ahk_base_vars_content[3], # AHK_ROOT_NAME
     ]
     
     if generated_structure_string:
@@ -1468,251 +770,625 @@ def generate_INCLUDE_OUTPUT(settings, final_settings_path, python_cmd_used, is_i
     if generated_include_string:
         ahk_content_lines.append(generated_include_string)
     
-    # --- 6. Write the file ---
     ahk_content = "\n".join(ahk_content_lines)
+
+    # --- 4. Comparison (if not initial run and file exists) ---
+    should_rewrite = True
     
-    try:
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(ahk_content)
-        logging.info(f"AHK file '{INCLUDE_OUTPUT}' generated successfully at: {output_path}")
-    except Exception as e:
-        logging.error(f"Error writing AHK file '{INCLUDE_OUTPUT}': {e}")
-        exit_script(EXIT_CODE_ERROR)
-
-def final_script_actions(final_script_name, is_initial_run, generated_ahk_config_file):
-    """
-    Gère la création initiale du script AHK final ou son lancement.
-    Le script AHK est créé uniquement s'il n'est pas trouvable.
-    """
-    script_path = os.path.join(os.getcwd(), final_script_name)
-    # Récupère le nom du fichier AHK de configuration (ex: settings.ahk)
-    script_path_ahk = os.path.basename(generated_ahk_config_file)
-
-    if not os.path.exists(script_path):
-        # Le log a été mis à jour pour refléter la nouvelle logique.
-        logging.info(f"Final script not found. Creating base AHK script '{final_script_name}'.")
-        
-        # Le contenu minimal pour le script AHK final
-        base_content = [
-            f'; Auto-generated start script for {final_script_name}',
-            f'#Requires AutoHotkey v2.0',
-            f'#include "{script_path_ahk}"', # Inclure le fichier settings.ahk/Includes.ahk généré
-            f'\n; Your custom code starts here'
-        ]
-        
+    if not is_initial_run and os.path.exists(FINAL_INCLUDE_FILE_PATH):
         try:
-            # 'w' assure que si le fichier existe, son contenu est écrasé/mis à jour avec la base.
-            with open(script_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(base_content))
-            logging.info(f"Base AHK script '{final_script_name}' created successfully.")
-        except Exception as e:
-            logging.error(f"Error writing base AHK script '{final_script_name}': {e}")
-            # Le processus de construction n'est pas interrompu
+            with open(FINAL_INCLUDE_FILE_PATH, 'r', encoding='utf-8') as f:
+                existing_content = f.read()
             
-    else:
-        logging.info(f"Final script '{final_script_name}' already exists. Skipping base content creation.")
+            # Simple content comparison
+            if existing_content.strip() == ahk_content.strip():
+                logging.info(f"AHK include file content (Classes/Includes) is identical. Skipping rewrite.")
+                should_rewrite = False
+                
+        except Exception as e:
+            logging.warning(f"Error during existing AHK include file comparison: {e}. Forcing rewrite.")
+            # should_rewrite remains True
     
+    # --- 5. Write the file ---
+    if should_rewrite:
+        try:
+            # Write to FINAL_INCLUDE_FILE_PATH
+            with open(FINAL_INCLUDE_FILE_PATH, 'w', encoding='utf-8') as f:
+                f.write(ahk_content)
+            logging.info(f"AHK include file generated successfully at: {FINAL_INCLUDE_FILE_PATH}")
+        except Exception as e:
+            # Show the actual filename that caused the error
+            logging.error(f"Error writing AHK include file '{FINAL_INCLUDE_FILE_PATH}': {e}")
+            exit_script(EXIT_CODE_ERROR)
+    else:
+         # End function without writing
+         logging.info(f"Skipping rewrite of AHK include file: {FINAL_INCLUDE_FILE_PATH}")
+
+
+def final_script_actions(StartAHKFileOutput, is_initial_run, generated_INCLUDE_OUTPUT_filename, config_path):
+    """
+    Manages the initial creation of the final AHK script or its launch.
+    The AHK script is created from a template if not found or on 'initial run'.
+    
+    StartAHKFileOutput: Name of the main script (e.g., Deepr.ahk)
+    generated_INCLUDE_OUTPUT_filename: Name of the include file (e.g., .include.ahk)
+    config_path: Relative path of the config folder (e.g., .config)
+    """
+    # The `StartAHKFileOutput` (e.g., Deepr.ahk) is at the ROOT.
+    script_path = os.path.join(os.getcwd(), StartAHKFileOutput) 
+
+    create_base_script = False
     if is_initial_run:
-        logging.info(f"Initial run: Creating base AHK script '{final_script_name}'.")
-        
-        # Le contenu minimal pour le script AHK final
-        base_content = [
-            f'; Auto-generated start script for {final_script_name}',
-            f'#Requires AutoHotkey v2.0',
-            f'#include "{script_path_ahk}"', # Inclure le fichier settings.ahk/Includes.ahk généré
-            f'\n; Your custom code starts here'
-        ]
-        
-        try:
-            # 'w' assure que si le fichier existe, son contenu est écrasé/mis à jour avec la base.
-            with open(script_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(base_content))
-            logging.info(f"Base AHK script '{final_script_name}' created successfully.")
-        except Exception as e:
-            logging.error(f"Error writing base AHK script '{final_script_name}': {e}")
-            # Le processus de construction n'est pas interrompu
-            
+        logging.info(f"Initial run: Creating/updating base AHK script '{StartAHKFileOutput}'.")
+        create_base_script = True
+    elif not os.path.exists(script_path):
+        logging.info(f"Final script not found. Creating base AHK script '{StartAHKFileOutput}'.")
+        create_base_script = True
     else:
-        # Lancer le script AHK
-        logging.info(f"Standard run: Attempting to launch '{final_script_name}'.")
+         logging.info(f"Final script '{StartAHKFileOutput}' already exists. Skipping base content creation.")
 
+    if create_base_script:
+        # The AHK include path must be relative to the script at root (e.g., .config\.includes.ahk)
+        include_file_name_for_ahk = os.path.join(config_path, generated_INCLUDE_OUTPUT_filename)
+        include_file_name_for_ahk = include_file_name_for_ahk.replace(os.sep, "\\")
+
+        current_date = datetime.now().strftime("%Y/%m/%d")
+        
+        # Template for the initial script, based on sample.txt
+        # Note: {{ and }} are used to escape curly braces in the f-string for AHK code blocks.
+        base_content = f"""\
+/***********************************************************************************
+ * 
+ * @description A fully modulable ahk script with per application hotkeys layering.
+ * @author Ephraem
+ * @date {current_date}
+ * @version {SCRIPT_VERSION}
+ * 
+/**********************************************************************************/
+/***********************************************************************************
+                                        @Notes
+* 
+
+*
+***********************************************************************************/
+
+/***********************************************************************************
+                                        @Init
+***********************************************************************************/
+
+#include "{include_file_name_for_ahk}"
+
+    full_command_line := DllCall("GetCommandLine", "str")
+
+    if not (A_IsAdmin or RegExMatch(full_command_line, " /restart(?!\S)")) {{
+        try {{
+            if A_IsCompiled 
+                Run '*RunAs "' A_ScriptFullPath '" /restart'
+            else
+                Run '*RunAs "' A_AhkPath '" /restart "' A_ScriptFullPath '"'
+        }} ExitApp
+    }}
+
+    ;E.g: TraySetIcon(A_Path.Icons "\\YourIcon.png")
+    
+    #ESC::Run '*RunAs "' A_ScriptDir "\\Launcher.ahk" '" /restart "' 
+
+/***********************************************************************************
+                                    @SetTimers
+***********************************************************************************/
+  
+    ;E.g: SetTimer((*) => YourFunctions() , 1000)
+
+/***********************************************************************************
+                                        @GUI
+***********************************************************************************/
+"""
+        try:
+            with open(script_path, 'w', encoding='utf-8') as f:
+                f.write(base_content)
+            logging.info(f"Base AHK script '{StartAHKFileOutput}' created/updated successfully from template.")
+        except Exception as e:
+            logging.error(f"Error writing base AHK script '{StartAHKFileOutput}': {e}")
+            # Do not stop, but launch will probably fail
+    
+    # Attempt to launch the script ONLY if it's NOT an 'initial run'
+    if not is_initial_run:
+        logging.info(f"Standard run: Attempting to launch '{StartAHKFileOutput}'.")
         if os.path.exists(script_path):
             try:
-                # Lance le script AHK en utilisant le programme associé (AutoHotkey)
+                # Launch the AHK script using the associated program (AutoHotkey)
                 os.startfile(script_path)
-                logging.info(f"Launched '{final_script_name}' successfully.")
+                logging.info(f"Launched '{StartAHKFileOutput}' successfully.")
             except Exception as e:
-                # En cas d'échec de lancement
-                logging.error(f"Failed to launch '{final_script_name}'. Please launch it manually. Error: {e}")
+                # On launch failure
+                logging.error(f"Failed to launch '{StartAHKFileOutput}'. Please launch it manually. Error: {e}")
         else:
-            logging.warning(f"File '{final_script_name}' not found at '{script_path}'. Skipping launch.")
+            logging.warning(f"File '{StartAHKFileOutput}' not found at '{script_path}'. Skipping launch (write may have failed).")
+
+def get_paths_to_ignore_for_scan(structure, base_path="."):
+    """
+    Recursively generates a list of folder paths that should be ignored
+    during the unknown folder scan, based on 'is_include': 'false'.
+    If a parent is ignored, all its children are also ignored.
+    """
+    ignored_paths = []
+    for item in structure:
+        include_status = is_valid_include_setting(item)
+        
+        item_folder_name = get_folder_name(item)
+        if not item_folder_name:
+            continue
+
+        current_path = os.path.join(base_path, item_folder_name)
+
+        if include_status is False:
+            # If this item is set to not be included, add it and all its children.
+            ignored_paths.append(current_path)
+            if item.get('children'):
+                # Use get_expected_paths to quickly get all children paths recursively
+                ignored_paths.extend(get_expected_paths(item['children'], current_path))
+        elif item.get('children'):
+            # If this item is included, we still need to check its children.
+            ignored_paths.extend(get_paths_to_ignore_for_scan(item['children'], current_path))
             
+    return ignored_paths
+
+def find_unknown_folders(expected_paths, paths_to_ignore_scan):
+    """
+    Scans the project directory and finds all folders that exist on disk
+    but are NOT part of the expected_paths list. It also ignores folders
+    explicitly marked for exclusion from the scan.
+    """
+    # Use sets for fast lookup
+    expected_paths_set = set(os.path.normpath(p) for p in expected_paths)
+    ignore_scan_paths_set = set(os.path.normpath(p) for p in paths_to_ignore_scan)
+    
+    # Standard directories to ignore during the scan
+    ignore_dirs = {'.git', 'venv', '.venv', '__pycache__', '.vscode'}
+    
+    unknown_folders = []
+    
+    # Walk the directory structure from the root
+    for root, dirs, files in os.walk(os.getcwd(), topdown=True):
+        
+        # 1. Prune ignored directories from traversal
+        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        
+        # 2. Check remaining directories
+        dirs_to_prune = [] # List to hold unknown folders to stop traversal
+        
+        for d in dirs:
+            full_path = os.path.normpath(os.path.join(root, d))
+            relative_path = os.path.relpath(full_path, os.getcwd())
+            
+            # Check if the folder should be explicitly ignored from the scan
+            if relative_path in ignore_scan_paths_set:
+                logging.info(f"Ignoring folder during scan (is_include: false): {relative_path}")
+                dirs_to_prune.append(d) # Prune from traversal
+                continue
+
+            if relative_path in expected_paths_set:
+                # This is a known folder, allow os.walk to descend
+                continue
+            else:
+                # This is an unknown folder
+                logging.warning(f"Found unknown folder: {relative_path}")
+                unknown_folders.append(relative_path)
+                dirs_to_prune.append(d) # Add to list to prevent traversal
+                
+        # 3. Prune the unknown folders from 'dirs'
+        # This stops os.walk from descending into them
+        for d_remove in dirs_to_prune:
+            dirs.remove(d_remove)
+            
+    return unknown_folders
+
+def show_move_files_dialog(root, unknown_folder, structure_json):
+    """
+    Displays a modal Toplevel window with a Treeview of the 
+    defined project structure.
+    
+    Args:
+        root (Tk): The hidden main Tk root.
+        unknown_folder (str): The name of the folder being processed.
+        structure_json (list): The 'structure' list from settings.json.
+
+    Returns:
+        str or None: The selected relative path, or None if cancelled.
+    """
+    dialog = Toplevel(root)
+    dialog.title(f"Select Destination for '{unknown_folder}'")
+    
+    # Make the dialog modal
+    dialog.transient(root)
+    dialog.grab_set()
+    
+    # Store node_id -> relative_path
+    node_map = {}
+    
+    # This dictionary will hold the result
+    result = {"path": None}
+
+    # --- Treeview setup ---
+    tree_frame = Frame(dialog)
+    tree_frame.pack(padx=10, pady=10, fill="both", expand=True)
+    
+    tree = ttk.Treeview(tree_frame, height=15)
+    tree.pack(side="left", fill="both", expand=True)
+    
+    scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
+    scrollbar.pack(side="right", fill="y")
+    tree.configure(yscrollcommand=scrollbar.set)
+
+    def populate_tree(parent_id, children_list, base_path):
+        """Recursive helper to populate the ttk.Treeview."""
+        for item in children_list:
+            item_folder_name = get_folder_name(item)
+            if not item_folder_name:
+                continue
+                
+            current_path = os.path.join(base_path, item_folder_name)
+            
+            # Insert the item into the tree
+            node_id = tree.insert(parent_id, 'end', text=item_folder_name, open=True)
+            
+            # Map the internal Treeview ID to our relative path
+            node_map[node_id] = current_path
+            
+            if item.get('children'):
+                populate_tree(node_id, item['children'], current_path)
+
+    # Start populating from the root
+    populate_tree('', structure_json, ".")
+
+    # --- Button setup ---
+    button_frame = Frame(dialog)
+    button_frame.pack(padx=10, pady=(0, 10), fill="x")
+
+    def on_next():
+        selected_id = tree.focus() # Get the ID of the selected item
+        if selected_id in node_map:
+            result["path"] = node_map[selected_id]
+            dialog.destroy()
+        else:
+            messagebox.showwarning("No Selection", "Please select a destination folder.", parent=dialog)
+
+    def on_cancel():
+        result["path"] = None
+        dialog.destroy()
+
+    # Set 'Cancel' as the default action for closing the window
+    dialog.protocol("WM_DELETE_WINDOW", on_cancel)
+
+    # Add buttons
+    Button(button_frame, text="Next", command=on_next, width=10).pack(side="right", padx=5)
+    Button(button_frame, text="Cancel", command=on_cancel, width=10).pack(side="right")
+
+    # Wait for the user to make a choice
+    dialog.wait_window()
+    
+    return result["path"]
+
+def copy_folder_contents(src, dst, root_tk):
+    """
+    Copies all contents from src to dst.
+    Uses shutil.copytree with dirs_exist_ok=True.
+    """
+    logging.info(f"Attempting to copy contents from '{src}' to '{dst}'...")
+    try:
+        # This copies all files and subfolders from src into dst
+        shutil.copytree(src, dst, dirs_exist_ok=True)
+        logging.info("Copy successful.")
+        
+    except Exception as e:
+        logging.error(f"Error copying files from '{src}' to '{dst}': {e}")
+        messagebox.showerror("Copy Error", f"Failed to copy files from '{src}' to '{dst}'.\n\nError: {e}", parent=root_tk)
+   
 # =================================================================
 # EXECUTIONS
 # =================================================================
+
 def main_build():
+    """
+    Main build process:
+    1. Detects initial run vs. standard run.
+    2. Loads settings.json (from root or config path).
+    3. Validates settings and structure.
+    4. Creates folder structure.
+    5. Moves settings.json and writes paths.ahk (root).
+    6. Generates .include.ahk (in config path).
+    7. Creates/Launches the main RootName.ahk script (root).
+    """
 
     # ------------------------------------------------------------------------------------
-    # 0. Try to get the python command, the output 'path' en 'include' file name passed as arguments
+    # 0. Get arguments (PYTHON_CMD, PATHFILE, INCLUDE_OUTPUT)
     # ------------------------------------------------------------------------------------
-    global INCLUDE_OUTPUT, PATHFILE, AHK_VAR_FINAL_SCRIPT_PATH 
+    global INCLUDE_OUTPUT, PATHFILE, StartAHKScriptOutput 
     
-    AHK_VAR_FINAL_SCRIPT_PATH = None 
+    StartAHKScriptOutput = None # Will be set by RootName
+    config_relative_path = None # Will be set after reading settings.json
 
     try:
-        # sys.argv[2] est le chemin de la commande Python
-        python_absolutePath = sys.argv[2] 
-        logging.info(f"Python command detected via command-line argument: {python_absolutePath}")
+        # sys.argv[2] is the Python command path
+        PYTHON_CMD = sys.argv[2] 
+        logging.info(f"Python command detected via command-line argument: {PYTHON_CMD}")
 
-        # sys.argv[3] est le nom du fichier AHK de sortie (ex: Includes.ahk)
-        PATHFILE = sys.argv[3] # PATHFILE est un alias de INCLUDE_OUTPUT
-        logging.info(f"Output PATHFILE file name detected via command-line argument: {PATHFILE}")
+        # sys.argv[3] is the output AHK Path file name (e.g., paths.ahk)
+        PATHFILE = sys.argv[3]
+        logging.info(f"Output PATHFILE (path config) file name detected via command-line argument: {PATHFILE}")
 
-        # sys.argv[3] est le nom du fichier AHK Path de sortie (ex: path.ahk)
+        # sys.argv[4] is the output AHK include file name (e.g., .includes.ahk)
         INCLUDE_OUTPUT = sys.argv[4]
-        logging.info(f"Output INCLUDE_OUTPUT file name detected via command-line argument: {INCLUDE_OUTPUT}")
+        logging.info(f"Output INCLUDE_OUTPUT (includes) file name detected via command-line argument: {INCLUDE_OUTPUT}")
 
     except IndexError:
-        # L'argument du script AHK final n'est plus obligatoire (arg 4)
-        raise ValueError("Error: Arguments are missing. Please provide the Python command (arg 2) AND the AHK output file name (arg 3). The final script name is now read from 'RootName' in settings.json.")
+        raise ValueError("Error: Arguments are missing. Usage: main.py build <python_cmd> <ahk_path_file> <ahk_include_file> [--log]")
 
     # ------------------------------------------------------------------------------------
-    # 1. Parse path.ahk to get the location of settings.json
+    # 1. Determine 'is_initial_run' by reading PATHFILE at the ROOT
     # ------------------------------------------------------------------------------------
-    logging.info(f"Attempting to load paths from AHK file: {PATHFILE}")
     
-    paths_ahk_abs_path = os.path.join(os.getcwd(), PATHFILE)
+    logging.info(f"--- Build Process Started ---")
     
-    settings_path_from_ahk = None
-    is_initial_run = False # Flag to track if this is a first-time setup
+    # Look for PATHFILE (e.g., paths.ahk) at the ROOT
+    pathsAHK_source = os.path.join(os.getcwd(), PATHFILE) 
+    
+    pathsAHK_jsonPathVar = None # This is the path to .config/settings.json
+    is_initial_run = False 
 
-    if os.path.exists(paths_ahk_abs_path):
-        # Try to load paths from the existing path.ahk
-        paths_info = read_ahk_variables(paths_ahk_abs_path) 
-        if paths_info:
-            settings_path_from_ahk, python_absolutePath, AHK_VAR_FINAL_SCRIPT_PATH = paths_info
+    if os.path.exists(pathsAHK_source):
+        # Case 1: 'paths.ahk' exists. 'is_initial_run = False'.
+        # Read the settings.json path from this file.
+        logging.info(f"Attempting to load paths from AHK file: {PATHFILE}")
+        pathsAHK_infos = read_ahk_variables(pathsAHK_source) 
+        if pathsAHK_infos:
+            pathsAHK_jsonPathVar, StartAHKScriptOutput = pathsAHK_infos
+            logging.info(f"Loaded config from '{PATHFILE}'. Settings.json should be at '{pathsAHK_jsonPathVar}'.")
+        else:
+            logging.warning(f"File '{PATHFILE}' exists but variables could not be read. Proceeding as partial initial run.")
+            is_initial_run = True 
+    else:
+        # Case 2: 'paths.ahk' does NOT exist. 'is_initial_run = True'.
+        is_initial_run = True
+        logging.info(f"File '{PATHFILE}' not found at root. Assuming initial run.")
     
-    # This is the path where we expect to find settings.json on an initial run
-    settings_json_source_abs_path = os.path.join(os.getcwd(), SETTINGS_FILE)
-
     # ------------------------------------------------------------------------------------
-    # 2. If path.ahk is missing, invalid, or settings.json not found at its usual spot,
-    #    try loading settings.json from the current directory.
+    # 2. Load settings.json
+    #    (Either from the remote path or from root if 'initial_run')
     # ------------------------------------------------------------------------------------
-    settings_data = None
     
-    if settings_path_from_ahk and os.path.exists(settings_path_from_ahk):
-        # path.ahk is present and valid, so settings.json is found via path.ahk
-        settings_data_check = load_settings_json(settings_path_from_ahk)
-        if settings_data_check:
-            settings_data, _ = settings_data_check
+    json_source_absolutePath = os.path.join(os.getcwd(), SETTINGS_FILE) # Local source (root)
+    json_data = None
+    
+    if pathsAHK_jsonPathVar and os.path.exists(pathsAHK_jsonPathVar) and not is_initial_run:
+        # Standard Run: load the remote settings.json (from .config/settings.json)
+        json_data_check = load_settings_json(pathsAHK_jsonPathVar)
+        if json_data_check:
+            json_data, _ = json_data_check
             logging.info(f"Configuration path confirmed by '{PATHFILE}'.")
         else:
-            # The path exists but the JSON is invalid, switching to local mode.
-            logging.warning(f"Remote settings.json file is invalid. Attempting local load.")
+            logging.warning(f"Remote settings.json file at '{pathsAHK_jsonPathVar}' is invalid. Attempting local load.")
+            is_initial_run = True # Treat as initial run if remote JSON is broken
     
-    if not settings_data:
-        # Try to load settings.json from the current directory
-        local_settings_data_check = load_settings_json(settings_json_source_abs_path)
+    if not json_data:
+        # Initial Run (or fallback): load settings.json from ROOT
+        logging.info("Attempting to load local settings.json (Initial Run or Fallback).")
+        local_json_data_check = load_settings_json(json_source_absolutePath)
         
-        # ------------------------------------------------------------------------------------
-        # 3. If settings.json is in the current directory, this is a 'New Structure' run.
-        # ------------------------------------------------------------------------------------
-        if local_settings_data_check:
-            settings_data, settings_json_source_abs_path = local_settings_data_check
-            is_initial_run = True # Set the initial run flag
+        if local_json_data_check:
+            json_data, json_source_absolutePath = local_json_data_check
+            if not is_initial_run:
+                is_initial_run = True 
             logging.info("'New Structure' mode detected: Loading settings.json locally.")
-
-    # ------------------------------------------------------------------------------------
-    # 4. If settings.json is missing locally, throw a fatal error.
-    # ------------------------------------------------------------------------------------
-    if not settings_data:
+        elif is_initial_run:
+            logging.fatal(f"Initial run mode, but '{SETTINGS_FILE}' not found locally at '{json_source_absolutePath}'.")
+            exit_script(EXIT_CODE_ERROR)
+    
+    if not json_data:
         logging.fatal(f"Could not find or load '{SETTINGS_FILE}' locally or via '{PATHFILE}'.")
         exit_script(EXIT_CODE_ERROR)
 
-    root_name = settings_data.get("RootName") 
-    if not root_name:
-        raise ValueError("Error: 'RootName' key is missing in your settings.json file. It is now mandatory to define the final script name.")
-        
-    # Le nom du script final est 'RootName' + '.ahk'
-    AHK_VAR_FINAL_SCRIPT_PATH = f"{root_name}.ahk"
-    logging.info(f"Final AHK Script file name determined from 'RootName': {AHK_VAR_FINAL_SCRIPT_PATH}")
-
     # ------------------------------------------------------------------------------------
-    # 5. path.ahk present and valid... (This case was already handled in step 2)
+    # 3. Validate settings.json and find config_relative_path
     # ------------------------------------------------------------------------------------
     
-    # ------------------------------------------------------------------------------------
-    # 6. Check for the 'structure' key (regardless of load mode)
-    # ------------------------------------------------------------------------------------
-
-    # Validation 1: structure
-    if 'structure' not in settings_data:
+    if 'structure' not in json_data:
         logging.error("The 'structure' key is missing in the settings.json file.")
         exit_script(EXIT_CODE_ERROR)
 
-    is_valid = True
+    # Validate RootName
+    FINAL_rootName = json_data.get("RootName") 
+    if not FINAL_rootName:
+        logging.error("Error: 'RootName' key is missing in your settings.json file.")
+        exit_script(EXIT_CODE_ERROR)
     
-    # Validation 2: RootName
-    if 'RootName' not in settings_data or not settings_data.get('RootName'):
-        logging.error("Mandatory key 'RootName' is missing or empty in settings.json.")
-        is_valid = False
-    
-    # Validation 3: Configuration path
-    # Utilise la fonction existante pour trouver le chemin de configuration
-    config_relative_path = find_config_dir_path(settings_data, CONFIG_TYPE)
+    # Validate and FIND config_relative_path (e.g., .config)
+    config_relative_path = find_config_dir_path(json_data, json_keyConfig)
     if not config_relative_path:
-        logging.error(f"Mandatory key 'type' for structure item type '{CONFIG_TYPE}' is missing or empty in settings.json.")
-        is_valid = False
-
-    if not is_valid:
-        # Sortir du script avec une erreur fatale si les validations échouent
+        logging.error(f"Mandatory key 'type' for structure item type '{json_keyConfig}' is missing or empty in settings.json.")
         exit_script(EXIT_CODE_ERROR) 
         
-    logging.info("Mandatory keys 'RootName' and 'Configuration' path are present.")
+    logging.info(f"Mandatory keys 'RootName' ('{FINAL_rootName}') and 'Configuration' path ('{config_relative_path}') are present.")
         
+    # --- RootName Change Detection and Migration ---
+    
+    # The new, expected script name based on settings.json
+    new_start_script_name = f"{FINAL_rootName}.ahk"
+    
+    # StartAHKScriptOutput still holds the OLD name from PATHFILE if it's not an initial run
+    old_start_script_name = StartAHKScriptOutput 
+    
+    if not is_initial_run and old_start_script_name and (old_start_script_name != new_start_script_name):
+        # RootName change detected
+        logging.warning(f"RootName change detected: '{old_start_script_name}' -> '{new_start_script_name}'.")
+        
+        # We must now use the NEW name for all subsequent operations
+        StartAHKScriptOutput = new_start_script_name
+        
+        # Check if the old script file exists at the root
+        old_script_path = os.path.join(os.getcwd(), old_start_script_name)
+        new_script_path = os.path.join(os.getcwd(), new_start_script_name)
 
+        if os.path.exists(old_script_path):
+            logging.info(f"Found existing script file: '{old_start_script_name}'")
+            
+            # Ask the user if they want to migrate content
+            root = Tk()
+            root.withdraw()
+            msg = (
+                f"RootName Change Detected\n\n"
+                f"The script name has changed from:\n{old_start_script_name}\n\n"
+                f"To:\n{new_start_script_name}\n\n"
+                f"Do you want to move your custom code from the old file to the new file?\n\n"
+                f"(Yes = Move content and delete old file)\n"
+                f"(No = Create a new blank file for {new_start_script_name})"
+            )
+            response = messagebox.askyesno("Migrate Script Content?", msg)
+            root.destroy()
+            
+            if response:
+                # User selected YES: Move content
+                try:
+                    # Use copy2 to preserve metadata, then remove
+                    shutil.copy2(old_script_path, new_script_path)
+                    os.remove(old_script_path)
+                    logging.info(f"Successfully migrated content from '{old_start_script_name}' to '{new_start_script_name}'.")
+                except Exception as e:
+                    logging.error(f"Error during script migration: {e}")
+                    # Show an error, but continue. The new file might be incomplete.
+                    root_err = Tk()
+                    root_err.withdraw()
+                    messagebox.showerror("Migration Error", f"Failed to move content from {old_start_script_name} to {new_start_script_name}.\n\nError: {e}")
+                    root_err.destroy()
+            else:
+                # User selected NO: Do nothing.
+                logging.info(f"User opted not to migrate content. A new '{new_start_script_name}' will be created if needed.")
+        else:
+            # Old script file not found, nothing to migrate
+            logging.info(f"Old script file '{old_start_script_name}' not found. No migration necessary.")
+            
+    else:
+        # No change, or initial run. Set the name as normal.
+        StartAHKScriptOutput = new_start_script_name
+        
+    logging.info(f"Final StartAHKScriptOutput file name determined: {StartAHKScriptOutput}")
+    # --- End of RootName Change Detection ---
+        
     # ------------------------------------------------------------------------------------
-    # 7. Generate expected paths from the JSON
+    # 4. Generate folder structure
     # ------------------------------------------------------------------------------------
     try:
-        expected_paths = get_expected_paths(settings_data['structure'])
+        expected_paths = get_expected_paths(json_data['structure'])
     except ValueError as e:
-        # CAPTURE l'erreur de validation levée dans get_expected_paths
         logging.fatal(f"FATAL VALIDATION ERROR: {e}")
         exit_script(EXIT_CODE_ERROR)
     
-    # ------------------------------------------------------------------------------------
-    # 8. Compare current structure and ask for user confirmation.
-    # 9. The warning is skipped if is_initial_run is True.
-    # ------------------------------------------------------------------------------------
-    missing_folders = compare_structure(expected_paths, is_initial_run)
+    # This step asks to create missing folders
+    compare_structure(expected_paths, is_initial_run)
+    # This step creates all defined folders
+    create_structure(json_data)
     
     # ------------------------------------------------------------------------------------
-    # 10. Generate structure and run Post-build: Copy original settings.json and create path.ahk
+    # 4.5. Handle unknown folders
     # ------------------------------------------------------------------------------------
-    # Create the structure (safe to run even if folders exist)
-    create_structure(settings_data)
+    logging.info("--- Checking for unknown folders not defined in settings.json ---")
     
-    # Post-build (Copy/Move JSON and write new path.ahk)
-    final_settings_path = post_build_actions(
-        source_path=settings_json_source_abs_path,
-        settings_data=settings_data,
+    # Get a list of folders to ignore based on "is_include": "false"
+    paths_to_ignore = get_paths_to_ignore_for_scan(json_data['structure'])
+    unknown_folders = find_unknown_folders(expected_paths, paths_to_ignore)
+    
+    if unknown_folders:
+        logging.warning(f"Found {len(unknown_folders)} unknown folders.")
+        
+        # Create a single, hidden Tk root for all dialogs in this section
+        dialog_root = Tk()
+        dialog_root.withdraw()
+        
+        structure_json_list = json_data.get('structure', [])
+        
+        for unknown_folder in unknown_folders:
+            msg = (f"Found an unknown folder: {unknown_folder}\n\n"
+                   f"Do you want to move its contents to a folder in your defined structure?")
+            
+            # Loop to allow user to 'Cancel' the treeview and return to this question
+            while True:
+                response = messagebox.askyesno("Unknown Folder Found", msg, parent=dialog_root)
+                
+                if not response:
+                    # User clicked 'No'
+                    logging.info(f"User skipped moving files from {unknown_folder}.")
+                    break # Exit 'while True' loop, move to next unknown_folder
+                
+                # User clicked 'Yes', show the Treeview dialog
+                destination = show_move_files_dialog(
+                    dialog_root, 
+                    unknown_folder, 
+                    structure_json_list
+                )
+                
+                if destination:
+                    # User selected a destination and clicked 'Next'
+                    src_path = os.path.join(os.getcwd(), unknown_folder)
+                    dst_path = os.path.join(os.getcwd(), destination)
+                    
+                    # Perform the copy
+                    copy_folder_contents(src_path, dst_path, dialog_root)
+                    
+                    break # Exit 'while True' loop, move to next unknown_folder
+                else:
+                    # User clicked 'Cancel' in the treeview dialog
+                    logging.info("User cancelled destination selection. Re-asking...")
+                    # The 'while True' loop repeats, re-showing the askyesno dialog
+        
+        # Clean up the hidden Tk root
+        dialog_root.destroy()
+        logging.info("--- Finished processing unknown folders ---")
+        
+    else:
+        logging.info("No unknown folders found. Structure is clean.")
+
+    # ------------------------------------------------------------------------------------
+    # 5. Post-build (Move JSON and write PATHFILE to ROOT)
+    # ------------------------------------------------------------------------------------
+    
+   # Call the corrected function (post_build_actions)
+    # It writes PATHFILE to root and returns the paths we need.
+    pathsAHK_jsonPathVar_result, config_relative_path_result = post_build_actions(
+        source_path=json_source_absolutePath, # The local settings.json (root)
+        json_data=json_data,
         is_initial_run=is_initial_run,
-        python_cmd_used=python_absolutePath,
-        final_script_path=AHK_VAR_FINAL_SCRIPT_PATH
+        StartAHKScriptOutput=StartAHKScriptOutput
+    )
+    # Ensure we use the returned config_path (e.g., .config)
+    config_relative_path = config_relative_path_result
+    pathsAHK_jsonPathVar = pathsAHK_jsonPathVar_result
+    
+    
+    # ------------------------------------------------------------------------------------
+    # 6. Generate the INCLUDE_OUTPUT file (in .config)
+    # ------------------------------------------------------------------------------------
+    
+    # generate_INCLUDE_OUTPUT expects 'config_relative_path'
+    generate_INCLUDE_OUTPUT(
+        json_data, 
+        pathsAHK_jsonPathVar, 
+        is_initial_run, 
+        StartAHKScriptOutput,
+        config_relative_path # <- Pass the config path (e.g., .config)
     )
     
     # ------------------------------------------------------------------------------------
-    # 11. Generate the AHK configuration file (now with the class structure)
+    # 7. Action on the Final script (e.g., Deepr.ahk)
     # ------------------------------------------------------------------------------------
-    generate_INCLUDE_OUTPUT(settings_data, final_settings_path, python_absolutePath, is_initial_run, AHK_VAR_FINAL_SCRIPT_PATH)
     
-    # ------------------------------------------------------------------------------------
-    # 12. Final script action: Create (initial run) or Launch (standard run)
-    # ------------------------------------------------------------------------------------
-    # Le fichier de configuration AHK généré est le INCLUDE_OUTPUT (ex: Includes.ahk)
-    final_script_actions(AHK_VAR_FINAL_SCRIPT_PATH, is_initial_run, INCLUDE_OUTPUT) 
+    # final_script_actions expects 'config_relative_path'
+    # INCLUDE_OUTPUT is the *filename* (e.g., .include.ahk)
+    final_script_actions(
+        StartAHKScriptOutput,       # e.g., Deepr.ahk (at root)
+        is_initial_run, 
+        INCLUDE_OUTPUT,             # e.g., .include.ahk (filename)
+        config_relative_path        # e.g., .config (folder where the include is)
+    ) 
 
     exit_script(0)
 
@@ -1721,42 +1397,42 @@ if __name__ == "__main__":
     enable_logging = False
     if "--log" in sys.argv:
         enable_logging = True
-        # Supprime l'argument '--log' de sys.argv pour que les indices
-        # des arguments positionnels (build, python_cmd, etc.) restent corrects.
+        # Remove the '--log' argument from sys.argv so that the indices
+        # of positional arguments (build, python_cmd, etc.) remain correct.
         sys.argv.remove("--log")
 
     setup_logging(enable_logging)
 
     if len(sys.argv) < 2:
-        print("❌ Erreur: Argument de mode ou de commande manquant.")
-        print("Utilisation: main.py build <python_cmd> <ahk_output_file>")
+        print("❌ Error: Mode or command argument missing.")
+        print("Usage: main.py build <python_cmd> <ahk_output_file>")
         sys.exit(1)
         
     mode = sys.argv[1].lower()
     
     if mode == "build":
-        # Vérifie si le 3ème argument (le nom du fichier AHK de sortie) est présent.
-        # Total : 5 arguments (main.py build python_cmd ahk_output_file)
-        if len(sys.argv) < 5: # <--- (vérifie 5 arguments nécessaires)
-            print("❌ Erreur de lancement (BUILD)")
-            print("Utilisation: main.py build <python_cmd> <ahk_path_file> <ahk_include_file> [--log]")
+        # Check if the 3rd argument (the output AHK file name) is present.
+        # Total: 5 arguments (main.py build python_cmd ahk_output_file)
+        if len(sys.argv) < 5: # <--- (checks 5 necessary arguments)
+            print("❌ Launch Error (BUILD)")
+            print("Usage: main.py build <python_cmd> <ahk_path_file> <ahk_include_file> [--log]")
             sys.exit(1)
 
         try:
             main_build()
-        # 💡 AJOUTER CE BLOC: Capture toutes les exceptions non gérées dans main_build
+        # Capture all unhandled exceptions in main_build
         except Exception as e:
-            # Imprime la trace complète dans la console pour un diagnostic immédiat
-            print(f"\n❌ CRASH NON GÉRÉ DANS main_build:\n{e}", file=sys.stderr)
+            # Print the full trace to the console for immediate diagnosis
+            print(f"\n❌ UNHANDLED CRASH IN main_build:\n{e}", file=sys.stderr)
             import traceback
             traceback.print_exc(file=sys.stderr)
-            logging.error(f"Crash non géré. Voir la console. Erreur: {e}")
-            exit_script(EXIT_CODE_ERROR) # Tentative d'arrêt propre
+            logging.error(f"Unhandled crash. See console. Error: {e}")
+            exit_script(EXIT_CODE_ERROR) # Attempt clean exit
 
     elif mode == "parser":
         logging.error(f"Parsed Mode previously removed. Need to work on it.")
-        exit_script(EXIT_CODE_ERROR) # Tentative d'arrêt propre
+        exit_script(EXIT_CODE_ERROR) # Attempt clean exit
     else:
-        print(f"❌ Erreur: Mode non reconnu: {mode}")
-        print("Modes disponibles: build, parser")
+        print(f"❌ Error: Unrecognized mode: {mode}")
+        print("Available modes: build, parser")
         sys.exit(1)

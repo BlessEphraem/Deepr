@@ -1,3 +1,2 @@
-path_settings := "Z:\Scripts\Deepr\.config\settings.json"
-cmd_python := "python"
+path_settings := ".config\settings.json"
 StartFinalScript := "Deepr.ahk"
