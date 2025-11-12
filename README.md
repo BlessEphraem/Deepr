@@ -1,21 +1,8 @@
-## 💫 Overview
+# Deepr AHK Framework
 
-# STILL IN WORK FOR THE RELEASE!!
+Welcome to Deepr, a lightweight, file-based framework designed to manage and organize complex AutoHotkey (AHK) v2 scripts. It uses a Python build script to parse a central `settings.json` file, dynamically generating your script's structure, include files, and context-sensitive hotkeys.
 
-Deepr is a robust and highly modular scripting framework designed to streamline complex workflows using AutoHotkey v2.0, managed entirely by a foundational Python build script.
-
-The project structure is driven by a single JSON file, ensuring consistency, easy maintenance, and rapid deployment of environment-specific automation logic.
-
-* **Python-Driven Build Process:** The ``main.py`` script automatically generates the entire AHK configuration, including path variables and #include directives, based on the settings.json file.
-
-
-* **Dynamic AHK Structure with JSON:** Generates a complete A_Path class in AHK, providing static and reliable paths to all project resources (Libraries, Functions, Icons, etc.).
-
-* **Context-Aware Scripting:** Automatically groups AHK includes and hotkeys by target application using #HotIf WinActive(...), ensuring your automation logic only runs where it's needed (e.g., specific functions only load when Premiere Pro is active).
-
-* **Modular Architecture:** The [settings.json](https://github.com/BlessEphraem/Deepr/blob/main/.config/settings.json) file defines a clean, hierarchical structure, making it simple to add, organize, and activate new modules or applications without manually editing the AHK include files.
-
-* **Media Production:** Includes comprehensive function stubs and includes for common post-production tasks like [ClipGain.ahk](https://github.com/BlessEphraem/Deepr/blob/main/Library/Modules/Premiere%20Pro/Functions/ClipGain.ahk), [Keyframe.ahk](https://github.com/BlessEphraem/Deepr/blob/main/Library/Modules/Premiere%20Pro/Functions/Keyframe.ahk), [Motion.ahk](https://github.com/BlessEphraem/Deepr/blob/main/Library/Modules/Premiere%20Pro/Functions/Motion.ahk), and [Panel.ahk](https://github.com/BlessEphraem/Deepr/blob/main/Library/Modules/Premiere%20Pro/Functions/Panel.ahk) in Premiere Pro.
+This framework is ideal for users who want to separate their hotkeys by application (e.g., global hotkeys, Photoshop-specific, Premiere Pro-specific) without managing complex `#Include` directives and window-group logic manually.
 
 ## 🛠️ Prerequisites
 
@@ -24,110 +11,102 @@ To build and run the framework, you need:
 * **Python 3.x**
 * **AutoHotkey v2.0+**
 
-## 🚀 Choose your release!
+## ⚙️ Core Features
 
-Two types of releases are available for you:
-### 1. The Full Package *(Recommended)*
-This includes all scripts and a ready-to-use configuration, which I personally use. I recommend starting with this even if you plan to modify it.
+* **Python Build System**: A single `main.py` script builds your entire AHK environment.
+* **Centralized Configuration**: `settings.json` acts as the single source of truth for your project's folder structure, file includes, and hotkey contexts.
+* **Dynamic Path Class**: Automatically generates an `A_Path` class in AHK, giving you easy, intellisense-friendly access to all your project folders (e.g., `A_Path.Core`, `A_Path.Modules.PremierePro`).
+* **Context-Aware Hotkeys**: Automatically wraps modules in `#HotIf WinActive(...)` blocks based on your configuration, so hotkeys for a specific app only work when that app is active.
+* **Modular by Design**: Easily add or disable new applications, scripts, or libraries just by updating `settings.json`.
+* **Smart Folder Detection**: If you add new folders to your project that aren't defined in `settings.json`, the build script will detect them and ask if you want to move their contents into your managed structure.
 
-### 2. From Scratch
-This contains only the essential files required to launch the script with a default configuration.
+## 🚀 Quick Start & Releases
 
-#### Usage
-Using my `Launcher.ahk` file with class included :
-```autohotkey
-class Files {
-    static mainPy := "main.py" ; <-- don't edit
-    static outputPath := "paths.ahk"  ; <-- You can edit
-    static outputIncludes := ".includes.ahk" ; <-- You can edit
-}
+There are two ways to get started with Deepr.
 
-; Essential Checks (A Fatal Error occurs if any of these return false)
-Launcher.Check.IsAdmin
-Launcher.Check.Python(&pythonCmd)
-Launcher.Check.mainPy(A_ScriptDir, Files.mainPy)
-Launcher.Build(pythonCmd, Files.mainPy, Files.outputPath, Files.outputIncludes)
-ExitApp
-```
-<details>
-<summary>View Detailed Explanation</summary>
+### 1. 📦 Deepr Package (Recommended)
+This is the "plug-and-play" option. It includes the core framework and all the modules and functions shown in this repository (e.g., Windows, Premiere Pro, After Effects).
 
-The `Launcher.Build()` command executes Python with all necessary arguments. For example:
+1.  Download the latest "Deepr Package" release.
+2.  Extract it to your desired location (e.g., `C:\MyScripts\Deepr`).
+3.  Ensure you have **Python 3.x** installed and added to your system's PATH.
+4.  Run `Launcher.ahk`.
+5.  The first time you run it, a Python console will appear and build the necessary files (`paths.ahk`, `.includes.ahk`, and `Deepr.ahk`).
+6.  Once complete, `Deepr.ahk` will be launched. You'll see its icon in your system tray, and your hotkeys will be active.
 
-```bash
-python main.py build python "path.ahk" "Includes.ahk"
-```
+### 2. 📦 From Scratch
 
-**Argument Breakdown**
+This option is for users who want to build their own configuration from the ground up.
 
-- `main.py build`: Specifies the script and the execution mode.
+1.  Download the "From Scratch" release.
+2.  This package contains only three essential files: `main.py`, `Launcher.ahk`, and `settings.json`.
+3.  Before running, you **must** edit the `settings.json` file to define your project. At a minimum, it requires a `RootName` (which will be the name of your main `.ahk` script) and a `structure` array containing at least one item with `"type": "Configuration"` (this tells the script where to store itself).
 
-- `python`: The calling method for Python (e.g., the command used to execute the interpreter).
+    **Minimal `settings.json`:**
+    ```json
+    {
+        "RootName": "MyScript",
+        "structure": [
+            {
+                "name": ".config",
+                "type": "Configuration",
+                "is_include": "true"
+            }
+        ]
+    }
+    ```
+4.  Run `Launcher.ahk`. The build script will perform the initial setup:
+    * It will create the `.config` and `Library` folders.
+    * It will move `settings.json` into the `.config` folder.
+    * It will generate `paths.ahk` (which tells the launcher where to find `settings.json` from now on).
+    * It will generate `.includes.ahk` in the `.config` folder.
+    * It will generate `MyScript.ahk` (based on your `RootName`) in the root folder.
+5.  You can now start adding your own `.ahk` files into the `Library` folder and updating `settings.json` to organize them.
 
-- `"path.ahk"`: The name of the AHK file to generate that stores all configuration paths (like the `settings.json` location).
+## 💫 Customization
 
-- `"Includes.ahk"`:  The name of the main AHK include file to generate, containing the `A_Path` class and all dynamic `#include` directives.
+### Changing Generated File Names
 
-The script operates in two distinct modes, determined automatically by the presence of the specified paths.ahk file (e.g., `Z:\Deepr\paths.ahk` when launching `Z:\Deepr\main.py`).
+The main generated files are `.includes.ahk`, `.paths.ahk` and `.Deepr.ahk`. If you wish to change thoses :
 
-*Recommendation: It is best practice to keep your paths.ahk file located in the same directory as the main.py file.*
+For `.includes.ahk`:
+1.  Open `Launcher.ahk` in an editor.
+2.  Find the `Files` class near the top.
+3.  Change the value of `static outputIncludes` to your desired name (e.g., `static outputIncludes := "MyGenIncludes.ahk"`).
 
-**1. Initial Run (Project Setup)**
-This mode runs when `paths.ahk` **is not found** in the script's launch directory.
+For `.paths.ahk`:
+1.  Open `settings.json` in an editor.
+2.  Find the key value `"type":"Configuration"` to find the `"path"` key value.
+3.  Change the value of `"path"` to your desired name (e.g., `"path":"MyGenPaths.ahk"`).
 
-The script will :
-- Read the local settings.json.
-- Create the full directory structure defined in structure.
-- Move the root `settings.json` into the folder you defined with `"type": "Configuration"`.
-- Generate `path.ahk`: This new file will contain the absolute paths to the new location of settings.json, the Python command, and the main script.
-- Generate `Includes.ahk`: This new file will contain the `A_Path` class and all `#includes` found (which will be few, as the project is new).
-- Generate `[RootName].ahk`: (e.g., `MyProject.ahk`, based on the `RootName` key). This is the main AHK script for you to edit. It's created with a single `#include "Includes.ahk"` line.
+For `Deepr.ahk`:
+1.  Open `settings.json` in an editor.
+2.  Find the key value `"rootName":"Deepr"` near the top.
+3.  Change the value of `"rootName"` to your desired name (e.g., `"rootName":"MyScript.ahk"`).
 
-**2. Standard Run (Update & Launch)**
-This mode runs when `paths.ahk` **is found** in the script's launch directory.
+**Note:** If you change the `RootName` in `settings.json` (e.g., from "Deepr" to "MyScript"), the build script will detect this. It will automatically rename `Deepr.ahk` to `MyScript.ahk` and present a message box asking if you want to migrate your custom code from the old file to the new one.
 
-The script will:
-- Read the existing `path.ahk` to find the real settings.json location.
-- Verify the directory structure. If any folders from settings.json are missing, it will ask for confirmation before creating them.
-- Re-scan the entire project for .ahk files.
-- Overwrite `Includes.ahk`: This file is updated with any new .ahk files you've added to the project, correctly sorting them by their Active context.
-- Launch `[RootName].ahk`: The script finishes by executing your main AHK script.
+### Adding New Modules (Folders)
 
-</details>
+To add a new set of hotkeys (e.g., for Photoshop):
 
+1.  Create a new folder, for example: `Library/Modules/Photoshop`.
+2.  Add your `.ahk` files (e.g., `Photoshop_Hotkeys.ahk`) inside this new folder.
+3.  Open `settings.json` and add a new object to the "Modules" `children` array:
 
+    ```json
+    {
+        "name": "Photoshop",
+        "type": "Photoshop",
+        "Active": "ahk_class Photoshop",
+        "is_include": "true"
+    }
+    ```
+4.  Run `Launcher.ahk`. The build script will automatically find your new files and add them to `.includes.ahk` under the correct `#HotIf WinActive("ahk_class Photoshop")` directive.
 
-### Important Files
+For more details on configuration, please see the **[settings.json Documentation](settings.json)**.
 
-#### `/main.py`
-The core Python script for initializing, managing, and running complex AutoHotkey (AHK) v2 projects. Automates directory creation, generates dynamic AHK configuration files, and manages script includes based on a central `settings.json` file.
+### Handling Unknown Folders
 
-#### `/Launcher.ahk`
-Checks if all prerequisites are met before launching `main.py`. Here you can change the final `outputIncludes` and `outputPath` filenames.
-- Can be renamed manually with your explorer.
-- Can be edited to change the auto-generated files name.
+If you create a folder in your project directory that is **not** defined in `settings.json`, the build script (`main.py`) will detect it. You will be prompted with a message box asking if you want to move the contents of this unknown folder into one of your existing, managed folders.
 
-#### `/settings.json`
-Acts as a blueprint used by `main.py` to generate and verify the folder structure and the AHK script found.
-**IMPORTANT: YOU CAN'T RENAME IT.**
-***or you will need to edit the `main.py` file directly***
-- You can **(and should)** edit it to suit your needs.
-
-### Auto-Generated Files
-
-#### `/Deepr.ahk`
-The main AHK script for you to edit. Has `#include Includes.ahk` in it.
-- You can rename it from `settings.json`
-- Created only on a first time run.
-
-#### `/.includes.ahk`
-The main generated file. Contains the `A_Path` class and `#include` directives.
-- You can rename it from `Launcher.ahk`
-- Created/Overwritten on every run.
-
-#### `/.paths.ahk`
-Stores important variables location for `main.py`. (paths to `settings.json`, `python.exe`, etc.).
-**IMPORTANT: DO NOT MOVE IT FROM THE `main.py` LOCATION.**
-***or you will need to edit the `main.py` file directly***
-- You can rename it from `Launcher.ahk`
-- Created/Overwritten on every run.
