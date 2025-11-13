@@ -402,8 +402,18 @@ Media_Prev::{
 }
 
 Media_Play_Pause::{
-    Send("{Media_Play_Pause}")
-    GUI_Debug.ReturnDebug "{PadSmallWheel1 Pressed} => {Media_Play_Pause}", "SendInput() => {Media_Play_Pause}", true
+    
+    IsClosed := Volume.SndVol.Toggle(2, 1000, 200, 80, 5)
+    Button := "{Media_Play_Pause}"
+
+    ; Mise à jour facultative de la GUI de débogage (Debug_Gui)
+    if (IsClosed) {
+    ; Le Toggle a fermé la fenêtre.
+        GUI_Debug.ReturnDebug "{PadBigWheel2 Pressed} => " Button, "Volume.SndVol.Init() => SndVol Ended", true
+    } else {
+    ; Le Toggle a lancé la fenêtre.
+        GUI_Debug.ReturnDebug "{PadBigWheel2 Pressed} => " Button, "Volume.SndVol.Init() => SndVol Started", true
+    }
 }
 
 Media_Next::{
@@ -438,17 +448,8 @@ Volume_Down::{
 }
 
 Volume_Mute::{
-    IsClosed := Volume.SndVol.Toggle(2, 1000, 200, 80, 5)
-    Button := "{Volume_Mute}"
-
-    ; Mise à jour facultative de la GUI de débogage (Debug_Gui)
-    if (IsClosed) {
-    ; Le Toggle a fermé la fenêtre.
-        GUI_Debug.ReturnDebug "{PadBigWheel2 Pressed} => " Button, "Volume.SndVol.Init() => SndVol Ended", true
-    } else {
-    ; Le Toggle a lancé la fenêtre.
-        GUI_Debug.ReturnDebug "{PadBigWheel2 Pressed} => " Button, "Volume.SndVol.Init() => SndVol Started", true
-    }
+    Send("{Media_Play_Pause}")
+    GUI_Debug.ReturnDebug "{PadSmallWheel1 Pressed} => {Volume_Mute}", "SendInput() => {Media_Play_Pause}", true
 }
 
 Volume_Up::{

@@ -1,5 +1,6 @@
 ﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
+
 /**
  * ```
  * Volume.Change(Action := '', ExeName := '', Value, ExePath := "")
