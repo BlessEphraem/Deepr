@@ -20,6 +20,47 @@ To build and run the framework, you need:
 * **Modular by Design**: Easily add or disable new applications, scripts, or libraries just by updating `settings.json`.
 * **Smart Folder Detection**: If you add new folders to your project that aren't defined in `settings.json`, the build script will detect them and ask if you want to move their contents into your managed structure.
 
+## ⚡ Not interested in the full framework? Use the modules independently!
+
+While Deepr is designed as an integrated system, many of its components are modular and can be easily adapted for your own AutoHotkey projects with minimal modification.
+
+### Standalone Python Utilities
+
+Located in `SupportFiles/Pythons/`, you can find useful helper scripts:
+
+* **`Backup_Maker.py`**: A simple but powerful Python utility. It reads a list of file and folder paths from `.config/Backup.txt` and copies them into a new `Backup` folder at a location you specify. This is perfect for quickly backing up your important configurations or project files.
+
+* **`Template_Maker.py`**: A command-line tool to boilerplate new projects. It lets you define a central folder of templates (e.g., for different video projects, coding assignments, etc.). When run, it presents a list of these templates, asks for a new project name, and copies the entire chosen template structure to a new location.
+
+### Standalone AutoHotkey Modules
+
+Most `.ahk` files in the `Library/` directory can be included and used in your own scripts.
+
+**Core Functions (`Library/Core/Functions/`)**
+This folder contains the backbone of Deepr's interactivity:
+
+* **`HandleKeyGestures.ahk`**: A robust function for creating complex, multi-action hotkeys (e.g., distinguishing between a simple tap, a double-tap, and a long-press).
+* **`WatchApp.ahk`**: A function that can be run on a timer to ensure specific windows are always "kept on top" (e.g., keeping Task Manager visible).
+* **`WatchError.ahk`**: A simple watchdog that automatically dismisses error message boxes, preventing them from halting your workflow.
+* **`WatchMouse.ahk`**: A utility for reporting which window and control is currently under the mouse cursor, excellent for debugging or creating context-aware tools.
+
+**Window Management (`Library/Modules/Windows/`)**
+This module is packed with functions for controlling your desktop environment:
+
+* **`Application.ahk`**: A powerful class for launching, focusing, or minimizing applications. It's particularly useful for handling programs that manage multiple windows or tabs, like File Explorer.
+* **`Komorebic.ahk`**: A simple wrapper that allows you to send commands to the [Komorebi tiling window manager](https://github.com/LGUG2Z/komorebi) directly from AHK.
+* **`Window.ahk`**: Provides convenient `Window.Move()` and `Window.Resize()` functions, perfect for binding to mouse-based hotkeys.
+* **`Volume.ahk`**: Includes functions to control system/application volume via NirCmd and a helper class to toggle and position the Windows Volume Mixer (SndVol.exe).
+* **`AlwaysOnTop.ahk`**: A simple toggle function for the active window.
+
+**Adobe Modules (`Library/Modules/Premiere Pro/`)**
+This module is highly specific to Adobe Premiere Pro and demonstrates advanced automation:
+
+* **`Panel.ahk`**: A class dedicated to identifying and focusing specific Premiere Pro panels (e.g., "Timeline", "Project", "EffectControls") by sending the correct keyboard shortcuts.
+* **`Motion.ahk`**: A class that uses ImageSearch and PixelSearch to find and interact with effect properties (like "Scale" or "Position") directly in the Effect Controls panel.
+* **`Paste.ahk`**: A context-aware "smart paste". It detects whether you are pasting a *clip*, a *project item*, or *keyframes* and automatically focuses the correct panel (like Effect Controls) before pasting.
+* **`ApplyPreset.ahk`**: A helper function that streamlines the process of dragging and dropping effects or presets onto clips.
+
 ## 🚀 Quick Start & Releases
 
 There are two ways to get started with Deepr.
