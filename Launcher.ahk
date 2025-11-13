@@ -1,6 +1,7 @@
 ﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
-SetWorkingDir A_ScriptDir ; Ensures the working directory is that of the AHK script
+SetWorkingDir A_ScriptDir
+; Ensures the working directory is that of the AHK script
 
 /**
 
@@ -8,7 +9,7 @@ SetWorkingDir A_ScriptDir ; Ensures the working directory is that of the AHK scr
     commandeAutoEditor := "-m --help"
     RunWait A_ComSpec " /k " '"' autoeditor '"' " " commandeAutoEditor
 
- */
+*/
 
 class Files {
     static mainPy := "main.py"
