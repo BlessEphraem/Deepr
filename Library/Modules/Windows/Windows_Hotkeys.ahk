@@ -144,12 +144,8 @@ Appskey::{
     GUI_Debug.ReturnDebug "{MXGesturePress} := {AppsKey}", Result, true
 }
 
-
-
-
 ; eager-focus
-;ocus the first managed window matching the given exe
-
+; focus the first managed window matching the given exe
 
 /*************************************************************************************************************
 **************************************************************************************************************

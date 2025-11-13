@@ -4,23 +4,8 @@ Welcome to Deepr, a lightweight, file-based framework designed to manage and org
 
 This framework is ideal for users who want to separate their hotkeys by application (e.g., global hotkeys, Photoshop-specific, Premiere Pro-specific) without managing complex `#Include` directives and window-group logic manually.
 
-## 🛠️ Prerequisites
-
-To build and run the framework, you need:
-
-* **Python 3.x**
-* **AutoHotkey v2.0+**
-
-## ⚙️ Core Features
-
-* **Python Build System**: A single `main.py` script builds your entire AHK environment.
-* **Centralized Configuration**: `settings.json` acts as the single source of truth for your project's folder structure, file includes, and hotkey contexts.
-* **Dynamic Path Class**: Automatically generates an `A_Path` class in AHK, giving you easy, intellisense-friendly access to all your project folders (e.g., `A_Path.Core`, `A_Path.Modules.PremierePro`).
-* **Context-Aware Hotkeys**: Automatically wraps modules in `#HotIf WinActive(...)` blocks based on your configuration, so hotkeys for a specific app only work when that app is active.
-* **Modular by Design**: Easily add or disable new applications, scripts, or libraries just by updating `settings.json`.
-* **Smart Folder Detection**: If you add new folders to your project that aren't defined in `settings.json`, the build script will detect them and ask if you want to move their contents into your managed structure.
-
-## ⚡ Not interested in the full framework? Use the modules independently!
+<details>
+<summary><strong>⚡ Not interested in the full framework? Use the modules independently!</strong></summary>
 
 While Deepr is designed as an integrated system, many of its components are modular and can be easily adapted for your own AutoHotkey projects with minimal modification.
 
@@ -60,6 +45,23 @@ This module is highly specific to Adobe Premiere Pro and demonstrates advanced a
 * **`Motion.ahk`**: A class that uses ImageSearch and PixelSearch to find and interact with effect properties (like "Scale" or "Position") directly in the Effect Controls panel.
 * **`Paste.ahk`**: A context-aware "smart paste". It detects whether you are pasting a *clip*, a *project item*, or *keyframes* and automatically focuses the correct panel (like Effect Controls) before pasting.
 * **`ApplyPreset.ahk`**: A helper function that streamlines the process of dragging and dropping effects or presets onto clips.
+</details>
+
+## 🛠️ Prerequisites
+
+To build and run the framework, you need:
+
+* **Python 3.x**
+* **AutoHotkey v2.0+**
+
+## ⚡ Core Features
+
+* **Python Build System**: A single `main.py` script builds your entire AHK environment.
+* **Centralized Configuration**: `settings.json` acts as the single source of truth for your project's folder structure, file includes, and hotkey contexts.
+* **Dynamic Path Class**: Automatically generates an `A_Path` class in AHK, giving you easy, intellisense-friendly access to all your project folders (e.g., `A_Path.Core`, `A_Path.Modules.PremierePro`).
+* **Context-Aware Hotkeys**: Automatically wraps modules in `#HotIf WinActive(...)` blocks based on your configuration, so hotkeys for a specific app only work when that app is active.
+* **Modular by Design**: Easily add or disable new applications, scripts, or libraries just by updating `settings.json`.
+* **Smart Folder Detection**: If you add new folders to your project that aren't defined in `settings.json`, the build script will detect them and ask if you want to move their contents into your managed structure.
 
 ## 🚀 Quick Start & Releases
 
