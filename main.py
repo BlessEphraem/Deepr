@@ -1295,6 +1295,92 @@ def delete_source_folder(src, root_tk):
         logging.error(f"Erreur lors de la suppression du dossier '{src}': {e}")
         messagebox.showerror("Erreur de suppression", f"Échec de la suppression du dossier d'origine '{src}'.\n\nVous devrez peut-être le supprimer manuellement.\n\nErreur: {e}", parent=root_tk)
 
+def create_minimal_settings():
+    """
+    Prompts the user to create a minimal settings.json file when it's missing
+    during an initial run.
+    
+    Returns:
+        tuple or None: (json_data, settings_abs_path) if successful, else None.
+    """
+    logging.info(f"Fonction 'create_minimal_settings' appelée.")
+    
+    # 1. Vérifier si la console est interactive
+    if not sys.stdout.isatty():
+        logging.fatal("Pas de terminal interactif (isatty=False). Impossible de demander le RootName.")
+        root_err = Tk()
+        root_err.withdraw()
+        messagebox.showerror(
+            "Erreur Critique", 
+            "Impossible de trouver settings.json.\n\n"
+            "Un terminal interactif est requis pour la configuration initiale (définir le RootName)."
+        )
+        root_err.destroy()
+        return None # Signal d'échec
+
+    # 2. Demander le RootName à l'utilisateur
+    root_name = ""
+    print("\n--- CONFIGURATION INITIALE ---")
+    print(f"Le fichier '{SETTINGS_FILE}' est introuvable.")
+    while not root_name:
+        try:
+            root_name = input("Veuillez entrer un nom pour votre projet (ex: MonProjet) : ").strip()
+            if not root_name:
+                print("Le nom ne peut pas être vide.")
+            # Valide que le nom est simple (lettres, chiffres, underscore)
+            elif not re.match(r"^[A-Za-z0-9_]+$", root_name):
+                 print("Le nom ne doit contenir que des lettres (A-Z, a-z), des chiffres (0-9) et des underscores (_).")
+                 root_name = ""
+
+        except (KeyboardInterrupt, EOFError):
+            logging.warning("Création minimale annulée par l'utilisateur.")
+            print("\nConfiguration annulée.")
+            return None # Signal d'échec
+
+    logging.info(f"RootName fourni par l'utilisateur : {root_name}")
+
+    # 3. Définir la structure JSON minimale
+    # Utilise la variable globale json_keyConfig pour le type "Configuration"
+    minimal_data = {
+        "RootName": root_name,
+        "structure": [
+            {
+                "type": json_keyConfig, # "Configuration"
+                "name": ".config",      # Dossier où settings.json sera déplacé
+                "is_include": "false",
+                "is_path": "true"
+            },
+            {
+                "type": "Library",
+                "name": "Library",
+                "is_include": "true",
+                "is_path": "true"
+            }
+        ]
+    }
+    
+    # 4. Définir le chemin de destination (à la racine)
+    settings_abs_path = os.path.abspath(os.path.join(os.getcwd(), SETTINGS_FILE))
+    
+    # 5. Écrire le fichier
+    try:
+        with open(settings_abs_path, 'w', encoding='utf-8') as f:
+            json.dump(minimal_data, f, indent=4)
+        
+        logging.info(f"Fichier '{SETTINGS_FILE}' minimal créé avec succès à : {settings_abs_path}")
+        print(f"'{SETTINGS_FILE}' créé avec succès.")
+        
+        # 6. Retourner les données et le chemin
+        return minimal_data, settings_abs_path
+        
+    except Exception as e:
+        logging.error(f"Erreur lors de l'écriture du fichier '{settings_abs_path}': {e}")
+        root_err = Tk()
+        root_err.withdraw()
+        messagebox.showerror("Erreur d'écriture", f"Impossible de créer le fichier {SETTINGS_FILE}.\n\nErreur: {e}")
+        root_err.destroy()
+        return None # Signal d'échec
+
 # =================================================================
 # EXECUTIONS
 # =================================================================
@@ -1389,21 +1475,43 @@ def main_build():
         local_json_data_check = load_settings_json(json_source_absolutePath)
         
         if local_json_data_check:
-            # CORRECTION : Capturer le chemin absolu qui a été chargé
+            # CAS 1: settings.json existe à la racine
             json_data, loaded_settings_json_path = local_json_data_check
-            # Mettre à jour json_source_absolutePath pour que la section 5 sache quel fichier déplacer
             json_source_absolutePath = loaded_settings_json_path
             
             if not is_initial_run:
                 is_initial_run = True 
             logging.info("'New Structure' mode detected: Loading settings.json locally.")
+        
         elif is_initial_run:
-            logging.fatal(f"Initial run mode, but '{SETTINGS_FILE}' not found locally at '{json_source_absolutePath}'.")
+            # CAS 2: settings.json n'existe pas ET on est en initial run
+            logging.warning(f"Initial run mode, but '{SETTINGS_FILE}' not found locally at '{json_source_absolutePath}'.")
+            logging.info("Attempting to create a minimal settings.json file...")
+            
+            # Appel de la nouvelle fonction pour créer le fichier
+            minimal_json_check = create_minimal_settings()
+            
+            if minimal_json_check:
+                # La création a réussi
+                json_data, loaded_settings_json_path = minimal_json_check
+                # Le 'source' path est le chemin qui vient d'être créé
+                json_source_absolutePath = loaded_settings_json_path
+                logging.info(f"Minimal '{SETTINGS_FILE}' created and loaded.")
+            else:
+                # La création a échoué (l'utilisateur a annulé ou erreur d'écriture)
+                logging.fatal("Failed to create minimal settings.json. Exiting.")
+                exit_script(EXIT_CODE_ERROR)
+        
+        else:
+            # CAS 3: settings.json n'existe pas, et on N'EST PAS en initial run
+            # (signifie que paths.ahk est corrompu ou pointe vers un fichier supprimé)
+            logging.fatal(f"'{SETTINGS_FILE}' not found locally or at the configured path '{pathsAHK_jsonPathVar}'.")
             exit_script(EXIT_CODE_ERROR)
     
     # CORRECTION : Vérifier aussi que le chemin a bien été stocké
     if not json_data or not loaded_settings_json_path:
-        logging.fatal(f"Could not find or load '{SETTINGS_FILE}' locally or via '{PATHFILE}'.")
+        # Cette condition est maintenant la sécurité finale si tout a échoué
+        logging.fatal(f"Could not find or load '{SETTINGS_FILE}'.")
         exit_script(EXIT_CODE_ERROR)
 
     # ------------------------------------------------------------------------------------
@@ -1660,7 +1768,7 @@ def main_build():
     ) 
 
     exit_script(0)
-
+    
 if __name__ == "__main__":
     
     enable_logging = False
