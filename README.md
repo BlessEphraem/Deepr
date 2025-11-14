@@ -1,155 +1,104 @@
 # Deepr AHK Framework
 
-Welcome to Deepr, a lightweight, file-based framework designed to manage and organize complex AutoHotkey (AHK) v2 scripts. It uses a Python build script to parse a central `settings.json` file, dynamically generating your script's structure, include files, and context-sensitive hotkeys.
+Deepr is a modular and dynamic framework designed to help you organize, manage, and build complex [AutoHotkey v2](https://www.autohotkey.com/) scripts. It takes the guesswork out of structuring your project by using a simple `settings.json` file as the single source of truth, automatically generating the necessary `#include` directives and a convenient `A_Path` class to access your project files.
 
-This framework is ideal for users who want to separate their hotkeys by application (e.g., global hotkeys, Photoshop-specific, Premiere Pro-specific) without managing complex `#Include` directives and window-group logic manually.
-
-<details>
-<summary><strong>⚡ Not interested in the full framework? Use the modules independently!</strong></summary>
-
-While Deepr is designed as an integrated system, many of its components are modular and can be easily adapted for your own AutoHotkey projects with minimal modification.
-
-### Standalone Python Utilities
-
-Located in `SupportFiles/Pythons/`, you can find useful helper scripts:
-
-* **`Backup_Maker.py`**: A simple but powerful Python utility. It reads a list of file and folder paths from `.config/Backup.txt` and copies them into a new `Backup` folder at a location you specify. This is perfect for quickly backing up your important configurations or project files.
-
-* **`Template_Maker.py`**: A command-line tool to boilerplate new projects. It lets you define a central folder of templates (e.g., for different video projects, coding assignments, etc.). When run, it presents a list of these templates, asks for a new project name, and copies the entire chosen template structure to a new location.
-
-### Standalone AutoHotkey Modules
-
-Most `.ahk` files in the `Library/` directory can be included and used in your own scripts.
-
-**Core Functions (`Library/Core/Functions/`)**
-This folder contains the backbone of Deepr's interactivity:
-
-* **`HandleKeyGestures.ahk`**: A robust function for creating complex, multi-action hotkeys (e.g., distinguishing between a simple tap, a double-tap, and a long-press).
-* **`WatchApp.ahk`**: A function that can be run on a timer to ensure specific windows are always "kept on top" (e.g., keeping Task Manager visible).
-* **`WatchError.ahk`**: A simple watchdog that automatically dismisses error message boxes, preventing them from halting your workflow.
-* **`WatchMouse.ahk`**: A utility for reporting which window and control is currently under the mouse cursor, excellent for debugging or creating context-aware tools.
-
-**Window Management (`Library/Modules/Windows/`)**
-This module is packed with functions for controlling your desktop environment:
-
-* **`Application.ahk`**: A powerful class for launching, focusing, or minimizing applications. It's particularly useful for handling programs that manage multiple windows or tabs, like File Explorer.
-* **`Komorebic.ahk`**: A simple wrapper that allows you to send commands to the [Komorebi tiling window manager](https://github.com/LGUG2Z/komorebi) directly from AHK.
-* **`Window.ahk`**: Provides convenient `Window.Move()` and `Window.Resize()` functions, perfect for binding to mouse-based hotkeys.
-* **`Volume.ahk`**: Includes functions to control system/application volume via NirCmd and a helper class to toggle and position the Windows Volume Mixer (SndVol.exe).
-* **`AlwaysOnTop.ahk`**: A simple toggle function for the active window.
-
-**Adobe Modules (`Library/Modules/Premiere Pro/`)**
-This module is highly specific to Adobe Premiere Pro and demonstrates advanced automation:
-
-* **`Panel.ahk`**: A class dedicated to identifying and focusing specific Premiere Pro panels (e.g., "Timeline", "Project", "EffectControls") by sending the correct keyboard shortcuts.
-* **`Motion.ahk`**: A class that uses ImageSearch and PixelSearch to find and interact with effect properties (like "Scale" or "Position") directly in the Effect Controls panel.
-* **`Paste.ahk`**: A context-aware "smart paste". It detects whether you are pasting a *clip*, a *project item*, or *keyframes* and automatically focuses the correct panel (like Effect Controls) before pasting.
-* **`ApplyPreset.ahk`**: A helper function that streamlines the process of dragging and dropping effects or presets onto clips.
-</details>
+Whether you want a fully managed framework for all your scripts or just want to browse a collection of useful, standalone AHK and Python modules, Deepr has you covered.
 
 ## 🛠️ Prerequisites
 
-To build and run the framework, you need:
+* **AutoHotkey v2.0+**: Download it from [autohotkey.com](https://www.autohotkey.com/).
+* **Python 3.x**: Download it from [python.org](https://www.python.org/).
+    * **Important:** During installation, make sure to check the box that says **"Add Python to PATH"**.
 
-* **Python 3.x**
-* **AutoHotkey v2.0+**
+---
 
 ## ⚡ Core Features
 
-* **Python Build System**: A single `main.py` script builds your entire AHK environment.
-* **Centralized Configuration**: `settings.json` acts as the single source of truth for your project's folder structure, file includes, and hotkey contexts.
-* **Dynamic Path Class**: Automatically generates an `A_Path` class in AHK, giving you easy, intellisense-friendly access to all your project folders (e.g., `A_Path.Core`, `A_Path.Modules.PremierePro`).
-* **Context-Aware Hotkeys**: Automatically wraps modules in `#HotIf WinActive(...)` blocks based on your configuration, so hotkeys for a specific app only work when that app is active.
-* **Modular by Design**: Easily add or disable new applications, scripts, or libraries just by updating `settings.json`.
-* **Smart Folder Detection**: If you add new folders to your project that aren't defined in `settings.json`, the build script will detect them and ask if you want to move their contents into your managed structure.
+* **Dynamic Project Structure:** No more manual `#include` management! Deepr's Python-based build script reads your `settings.json` and automatically generates the include files.
+* **Smart Folder Detection:** Simply add a new folder to your `Library`, and the next time you run the launcher, Deepr will detect it and ask if you want to automatically add it to your `settings.json`.
+* **Context-Aware Hotkeys:** Automatically wrap hotkeys in `#HotIf WinActive(...)` directives based on your settings, so your Premiere Pro shortcuts don't interfere with VS Code, and vice-versa.
+* **Centralized Path Management:** Generates an `A_Path` class in AHK, giving you clean, intellisense-friendly access to all your project folders (e.g., `A_Path.Modules.PremierePro`).
+* **Modular Library:** The entire framework is built around a `Library` folder, making it easy to grab individual modules (like `HandleKeyGestures`, `Application`, or `Window`) for use in your own projects.
+* **Helpful Utilities:** Includes standalone Python scripts for common tasks, like `Backup_Maker.py` to back up your project files.
 
-## 🚀 Quick Start & Releases
+## 🚀 Just Need a Specific Tool? (Standalone Modules)
 
-There are two ways to get started with Deepr.
+You don't have to use the whole framework! Most components in the `Library` are designed to be portable. Feel free to browse the repository and download anything you find useful.
 
-### 1. 📦 Deepr Package (Recommended)
-This is the "plug-and-play" option. It includes the core framework and all the modules and functions shown in this repository (e.g., Windows, Premiere Pro, After Effects).
+**Notable Standalone Modules:**
 
-1.  Download the latest "Deepr Package" release.
-2.  Extract it to your desired location (e.g., `C:\MyScripts\Deepr`).
-3.  Ensure you have **Python 3.x** installed and added to your system's PATH.
-4.  Run `Launcher.ahk`.
-5.  The first time you run it, a Python console will appear and build the necessary files (`paths.ahk`, `.includes.ahk`, and `Deepr.ahk`).
-6.  Once complete, `Deepr.ahk` will be launched. You'll see its icon in your system tray, and your hotkeys will be active.
+* **AHK Modules (`Library/AHK`):**
+    * **`HandleKeyGestures.ahk`**: A powerful function to create hotkeys that react differently to a **Tap**, **Double-Tap**, or **Hold**.
+    * **`Application.ahk`**: An advanced class for launching, focusing, or minimizing applications, with special handling for File Explorer paths and tabs.
+    * **`Window.ahk`**: Simple, effective functions to move and resize windows using your mouse.
+    * **`Modules/Premiere Pro`**: A suite of tools for Adobe Premiere Pro, including:
+        * `Panel.ahk`: Programmatically focus specific panels (e.CSS. `Timeline`, `EffectControls`).
+        * `Paste.ahk`: A "smart paste" that detects if you're pasting clips or keyframes and focuses the correct panel automatically.
+        * `Motion.ahk`: Uses ImageSearch to find and interact with effect properties like "Scale" and "Position" directly in the Effect Controls panel.
+    * **`SideNote.ahk`**: A simple slide-out notepad GUI that docks to the right side of your screen.
 
-### 2. 📦 From Scratch
+* **Python Scripts (`Library/Pythons`):**
+    * **`Backup_Maker.py`**: A simple CLI tool that reads a list of files/folders from a text file (`.config/.BackupMaker/Backup.txt`) and copies them (preserving directory structure) to a single `Backup` folder.
+    * **`Template_Maker.py`**: A CLI tool to boilerplate new projects. Point it to a folder of templates, and it will ask you which one to copy and what to name the new project folder.
 
-This option is for users who want to build their own configuration from the ground up.
+---
 
-1.  Download the "From Scratch" release.
-2.  This package contains only three essential files: `main.py`, `Launcher.ahk`, and `settings.json`.
-3.  Before running, you **must** edit the `settings.json` file to define your project. At a minimum, it requires a `RootName` (which will be the name of your main `.ahk` script) and a `structure` array containing at least one item with `"type": "Configuration"` (this tells the script where to store itself).
+## 🚀 Quick Start (Using Framework)
 
-    **Minimal `settings.json`:**
-    ```json
-    {
-        "RootName": "MyScript",
-        "structure": [
-            {
-                "name": ".config",
-                "type": "Configuration",
-                "is_include": "true"
-            }
-        ]
-    }
-    ```
-4.  Run `Launcher.ahk`. The build script will perform the initial setup:
-    * It will create the `.config` and `Library` folders.
-    * It will move `settings.json` into the `.config` folder.
-    * It will generate `paths.ahk` (which tells the launcher where to find `settings.json` from now on).
-    * It will generate `.includes.ahk` in the `.config` folder.
-    * It will generate `MyScript.ahk` (based on your `RootName`) in the root folder.
-5.  You can now start adding your own `.ahk` files into the `Library` folder and updating `settings.json` to organize them.
+This is the recommended way to use Deepr as a complete framework for your own scripts.
 
-## 💫 Customization
+1.  **Download:** Grab the latest realease, it contains only `Launcher.ahk` and `main.py`.
+2.  **Place Files:** Put both files into a new, empty folder. This will be your project's root.
+3.  **Run:** Double-click `Launcher.ahk`.
+    * A console window will appear. Because `settings.json` is missing, the script will ask you to provide a `RootName` for your new project folder (e.g., `MyScripts`).
+    * The script will then automatically generate the default folder structure (`Library`, `.config`) and all the necessary configuration files (`settings.json`, `paths.ahk`, `.includes.ahk`).
+    * Finally, it will create and launch your main script (e.g., `MyScripts.ahk`).
+4.  **Done!** Your framework is ready. You can now start adding your own scripts to the `Library` folder.
 
-### Changing Generated File Names
+## 🧩 How to Use & Add Modules
 
-The main generated files are `.includes.ahk`, `.paths.ahk` and `.Deepr.ahk`. If you wish to change thoses :
+Deepr's main strength is how it handles new scripts. You don't need to manually edit `settings.json` or `.include.ahk` every time you add a new module.
 
-For `.includes.ahk`:
-1.  Open `Launcher.ahk` in an editor.
-2.  Find the `Files` class near the top.
-3.  Change the value of `static outputIncludes` to your desired name (e.g., `static outputIncludes := "MyGenIncludes.ahk"`).
+### Adding a New Module
 
-For `.paths.ahk`:
-1.  Open `settings.json` in an editor.
-2.  Find the key value `"type":"Configuration"` to find the `"path"` key value.
-3.  Change the value of `"path"` to your desired name (e.g., `"path":"MyGenPaths.ahk"`).
-
-For `Deepr.ahk`:
-1.  Open `settings.json` in an editor.
-2.  Find the key value `"rootName":"Deepr"` near the top.
-3.  Change the value of `"rootName"` to your desired name (e.g., `"rootName":"MyScript.ahk"`).
-
-**Note:** If you change the `RootName` in `settings.json` (e.g., from "Deepr" to "MyScript"), the build script will detect this. It will automatically rename `Deepr.ahk` to `MyScript.ahk` and present a message box asking if you want to migrate your custom code from the old file to the new one.
-
-### Adding New Modules (Folders)
-
-To add a new set of hotkeys (e.g., for Photoshop):
-
-1.  Create a new folder, for example: `Library/Modules/Photoshop`.
-2.  Add your `.ahk` files (e.g., `Photoshop_Hotkeys.ahk`) inside this new folder.
-3.  Open `settings.json` and add a new object to the "Modules" `children` array:
+1.  **Create a Folder:** Create a new folder for your module inside `Library/AHK/Modules/`. For example: `Library/AHK/Modules/Photoshop`.
+2.  **Add Scripts:** Place your `.ahk` files inside this new folder (e.g., `Photoshop_Hotkeys.ahk`).
+3.  **Run Launcher:** Run `Launcher.ahk` again.
+4.  **Auto-Configure:** The build script will detect a new "unknown" folder (`Photoshop`). It will ask you via a console prompt if you want to add this folder to your `settings.json`.
+5.  **Confirm:** Press `a` (for Add). The script will automatically update `settings.json` and add the new module to your `.includes.ahk` file.
+6.  **Add Context (Optional):**
+    * Open `.config/settings.json`.
+    * Find the new entry for "Photoshop".
+    * Add an `"Active"` key to make all scripts in that folder context-sensitive:
 
     ```json
     {
         "name": "Photoshop",
         "type": "Photoshop",
-        "Active": "ahk_class Photoshop",
-        "is_include": "true"
+        "Active": "ahk_exe Photoshop.exe",  // This makes it context-sensitive
+        "is_include": "true",
+        "is_path": "true"
     }
     ```
-4.  Run `Launcher.ahk`. The build script will automatically find your new files and add them to `.includes.ahk` under the correct `#HotIf WinActive("ahk_class Photoshop")` directive.
 
-For more details on configuration, please see the **[settings.json Documentation](settings.json)**.
+Now, any hotkeys inside `Photoshop_Hotkeys.ahk` will only work when Photoshop is the active window.
 
-### Handling Unknown Folders
+## 💫 Customization (`settings.json`)
 
-If you create a folder in your project directory that is **not** defined in `settings.json`, the build script (`main.py`) will detect it. You will be prompted with a message box asking if you want to move the contents of this unknown folder into one of your existing, managed folders.
+The `settings.json` file is the heart of your project's configuration. Here are the key properties you can use for each folder entry:
 
+**IMPORTANT:** Do not add new folder entries to this file manually. Instead, create the physical folder in your project and re-run Launcher.ahk. The script will detect it and offer to add it for you. You should only edit this file to modify the properties of existing folders.
+
+* **`"name"`**: (Optional) The name of the folder on your disk. If omitted, the `"type"` value is used as the folder name.
+* **`"type"`**: (Required) The name used to generate the variable in the `A_Path` class. For example, a "type" of "MyScripts" becomes accessible via `A_Path.MyScripts`.
+* **`"Active"`**: (Optional) The `WinActive` condition for all scripts in this folder and its subfolders.
+    * `"ahk_exe MyProgram.exe"`: Scripts only run when `MyProgram.exe` is active.
+    * `"Windows"`: Scripts will be global (part of the main script).
+    * If omitted, scripts are global.
+* **`"is_include"`**: (Optional, defaults to `"true"`)
+    * `"true"`: The build script will scan this folder (and its children) for `.ahk` files and `#include` them.
+    * `"false"`: The build script will **ignore** this folder and all its children when looking for `.ahk` files.
+* **`"is_path"`**: (Optional, defaults to `"true"`)
+    * `"true"`: This folder will be added to the `A_Path` class.
+    * `"false"`: This folder will be ignored by the `A_Path` class generator.
+* **`"children"`**: (Optional) A list of nested folder objects that inherit properties (like `Active`) from their parent.
