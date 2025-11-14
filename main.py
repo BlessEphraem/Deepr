@@ -6,15 +6,16 @@ import shutil
 import argparse
 import configparser
 import re
+import subprocess
 from datetime import datetime
 from tkinter import (
-    Tk, messagebox, Toplevel, Frame, Button
+    Tk, messagebox
 )
 
 # --- CONFIGURATION ---
 SETTINGS_FILE = "settings.json"
 LOG_FILE = "mainpy.log"
-SCRIPT_VERSION = "6.0 BETA"
+SCRIPT_VERSION = "7.0"
 # Name of the AHK configuration file to generate
 PATHFILE = None
 INCLUDE_OUTPUT = None
@@ -444,66 +445,107 @@ def is_valid_path_setting(item):
     else:
         return 'ERROR' # Invalid string
 
-def generate_flat_path_structure(structure_list, parent_var_name):
+def generate_nested_path_structure(structure_list, parent_class_path_str, parent_base_str, indent_level):
     """
-    Recursive function to generate AHK code for static path variables
-    within the single root class.
+    Recursive function to generate AHK code for a NESTED class structure,
+    mimicking the sample.ahk file.
+    
+    Args:
+        structure_list (list): The list of node items (from settings.json).
+        parent_class_path_str (str): The AHK path of the parent class (e.g., "A_Path" or "A_Path.Library").
+        parent_base_str (str): The AHK variable for the parent's base path (e.g., "A_Path.rootDir" or "A_Path.Library._base").
+        indent_level (int): The current indentation level.
     """
     ahk_code_lines = []
-    indent = "    " # 4 spaces
+    indent = "    " * indent_level
 
     for item in structure_list:
         class_type = item.get("type")
         if not class_type:
-            logging.warning(f"Item skipped for AHK path var because 'type' is missing: {item}")
+            logging.warning(f"Item skipped for AHK path class, 'type' is missing: {item}")
             continue
-            
-        path_status = is_valid_path_setting(item)
         
+        # --- Check if THIS path should be included at all ---
+        path_status = is_valid_path_setting(item)
         if path_status == 'ERROR':
-            # This error should be fatal and caught earlier,
-            # but this is a safety net.
-            logging.error(f"Invalid 'is_path' value for type '{class_type}'. Skipping.")
-            # Do not recurse if config is invalid.
+            logging.error(f"Invalid 'is_path' value for type '{class_type}'. Skipping class/var generation.")
             continue
-            
+        if path_status is False:
+            logging.info(f"Skipping AHK path generation for '{class_type}' (is_path: false).")
+            continue
+        # --- End Check ---
+        
         item_folder_name = get_folder_name(item)
         if not item_folder_name:
             logging.warning(f"Item type '{class_type}' has no folder name ('name' or 'type'). Skipping path generation.")
             continue
 
-        current_var_name = class_type
-        children_to_process = item.get("children", [])
+        ahk_path_segment = f'\\{item_folder_name}'
         
-        # Determine the parent_var_name for children
-        next_parent_var_name = parent_var_name # Inherit parent by default
-        
-        if path_status is True:
-            # 'is_path' is 'true', generate the static path variable
+        # --- NOUVELLE LOGIQUE : PRÉ-FILTRER LES ENFANTS ---
+        children = item.get("children", [])
+        valid_path_children = []
+        if children:
+            for child in children:
+                # Vérifier si cet enfant va réellement générer un chemin
+                child_class_type = child.get("type")
+                if not child_class_type:
+                    continue
+                
+                child_path_status = is_valid_path_setting(child)
+                if child_path_status == 'ERROR' or child_path_status is False:
+                    continue
+                    
+                if not get_folder_name(child):
+                    continue
+                
+                # Si on arrive ici, l'enfant est valide
+                valid_path_children.append(child)
+        # --- Fin de la nouvelle logique ---
+
+        # MODIFIÉ : Vérifier la liste pré-filtrée
+        if valid_path_children:
+            # --- This item has valid children, so it becomes a CLASS ---
+            current_class_name = class_type
             
-            # The folder name. AHKv2 can concatenate a variable and a string:
-            # this.Library "\Core"
-            ahk_path_segment = f'\\{item_folder_name}'
+            # 1. Start Class definition
+            ahk_code_lines.append(f'\n{indent}class {current_class_name} extends A_Path.PathNode')
+            ahk_code_lines.append(f'{indent}{{')
             
-            # Generate the line
-            # e.g.: static Core := this.Library "\Core"
-            line = f'{indent}static {current_var_name} := {parent_var_name} "{ahk_path_segment}"'
+            # 2. Define its 'static _base'
+            line = f'{indent}    static _base := {parent_base_str} "{ahk_path_segment}"'
             ahk_code_lines.append(line)
             
-            # The parent for this item's children becomes this item
-            next_parent_var_name = f'this.{current_var_name}'
+            # 3. Recurse for its children
+            new_parent_class_path = f"{parent_class_path_str}.{current_class_name}"
+            new_parent_base_str = f"{new_parent_class_path}._base"
             
-        # else: (path_status is False)
-            # No line is generated for 'current_var_name'.
-            # 'next_parent_var_name' remains 'parent_var_name' (this item's parent).
-            # Children will be attached to the grandparent.
-
-        # 3. Recursion
-        if children_to_process:
-            ahk_code_lines.extend(generate_flat_path_structure(
-                children_to_process, 
-                next_parent_var_name
-            ))
+            child_lines = generate_nested_path_structure(
+                valid_path_children, # MODIFIÉ : Utiliser la liste filtrée
+                new_parent_class_path,
+                new_parent_base_str,
+                indent_level + 1
+            )
+            
+            if child_lines:
+                ahk_code_lines.append(f'') # Add a newline for readability
+                ahk_code_lines.extend(child_lines)
+            
+            # 4. Close Class
+            ahk_code_lines.append(f'{indent}}}')
+            
+        else:
+            # --- No valid children, so it becomes a STATIC VARIABLE ---
+            current_var_name = class_type
+            
+            # Determine the base variable (e.g., A_Path.rootDir or this._base)
+            base_var_to_use = "this._base"
+            if parent_class_path_str == "A_Path": 
+                # This item is a direct child of A_Path (like Configuration)
+                base_var_to_use = parent_base_str # which is A_Path.rootDir
+            
+            line = f'{indent}static {current_var_name} := {base_var_to_use} "{ahk_path_segment}"'
+            ahk_code_lines.append(line)
     
     return ahk_code_lines
 
@@ -534,7 +576,7 @@ def is_valid_include_setting(item):
 
 def extract_ahk_generated_content(settings, FINAL_rootName, include_file_dir):
     """
-    Generates the AHK lines for the flat class structure and the includes.
+    Generates the AHK lines for the NESTED class structure and the includes.
 
     Returns:
         tuple: (structure_lines, include_string)
@@ -542,7 +584,7 @@ def extract_ahk_generated_content(settings, FINAL_rootName, include_file_dir):
     structure_lines = []
     structure_list = settings.get("structure", [])
     
-    # --- 1. New class structure generation (Flat) ---
+    # --- 1. New class structure generation (Nested) ---
     if FINAL_rootName != "Unknown_Root":
         # Start of the root class
         structure_lines.append(f'class A_Path\n{{')
@@ -551,21 +593,32 @@ def extract_ahk_generated_content(settings, FINAL_rootName, include_file_dir):
         structure_lines.append(f"    static rootDir := A_ScriptDir")
         
         # Add any other root-level properties from settings.json
+        # (e.g., if you have "Version": "1.0" at the root of settings.json)
         for key, val in settings.items():
             if key not in ("structure", "RootName"):
                 formatted_val = format_ahk_value(val)
                 structure_lines.append(f"    static {key} := {formatted_val}")
 
+        # Add the helper PathNode class (from sample.ahk)
+        structure_lines.append(f'\n    class PathNode {{')
+        structure_lines.append(f'        static _base := ""')
+        structure_lines.append(f'        static __Call() {{')
+        structure_lines.append(f'            return this._base')
+        structure_lines.append(f'        }}')
+        structure_lines.append(f'    }}\n')
+
         # Recursive call for children path variables
-        path_var_lines = generate_flat_path_structure(
+        path_var_lines = generate_nested_path_structure(
             structure_list, 
-            "this.rootDir"
+            "A_Path",         # parent_class_path_str
+            "A_Path.rootDir", # parent_base_str
+            1                 # indent_level (starts at 1 for 4 spaces)
         )
         structure_lines.extend(path_var_lines)
         
         structure_lines.append(f'\n}}') # Close the root class
 
-    # --- 2. Generate #include directives ---
+    # --- 2. Generate #include directives (This part is unchanged) ---
     base_project_dir = os.getcwd() 
     include_string = generate_ahk_includes(structure_list, FINAL_rootName, base_project_dir, json_keyConfig, include_file_dir)
     
@@ -804,7 +857,6 @@ def generate_INCLUDE_OUTPUT(settings, Param_pathsAHK_jsonPathVar, is_initial_run
          # End function without writing
          logging.info(f"Skipping rewrite of AHK include file: {FINAL_INCLUDE_FILE_PATH}")
 
-
 def final_script_actions(StartAHKFileOutput, is_initial_run, generated_INCLUDE_OUTPUT_filename, config_path):
     """
     Manages the initial creation of the final AHK script or its launch.
@@ -938,6 +990,9 @@ def find_unknown_folders(expected_paths, paths_to_ignore_scan):
     Scans the project directory and finds all folders that exist on disk
     but are NOT part of the expected_paths list. It also ignores folders
     explicitly marked for exclusion from the scan.
+    
+    This version DOES NOT prune unknown folders, allowing os.walk to
+    descend into them to find unknown children.
     """
     # Use sets for fast lookup
     expected_paths_set = set(os.path.normpath(p) for p in expected_paths)
@@ -951,123 +1006,266 @@ def find_unknown_folders(expected_paths, paths_to_ignore_scan):
     # Walk the directory structure from the root
     for root, dirs, files in os.walk(os.getcwd(), topdown=True):
         
-        # 1. Prune ignored directories from traversal
-        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+        # Iterate over a copy of dirs so we can modify the original 'dirs' list
+        # to prune traversal for 'ignore_dirs' and 'ignore_scan_paths'
+        dirs_copy = list(dirs)
         
-        # 2. Check remaining directories
-        dirs_to_prune = [] # List to hold unknown folders to stop traversal
-        
-        for d in dirs:
+        for d in dirs_copy:
             full_path = os.path.normpath(os.path.join(root, d))
             relative_path = os.path.relpath(full_path, os.getcwd())
-            
-            # Check if the folder should be explicitly ignored from the scan
-            if relative_path in ignore_scan_paths_set:
-                logging.info(f"Ignoring folder during scan (is_include: false): {relative_path}")
-                dirs_to_prune.append(d) # Prune from traversal
+
+            # 1. Prune standard ignored directories
+            if d in ignore_dirs:
+                dirs.remove(d)
                 continue
 
+            # 2. Prune directories explicitly set to 'is_include: false'
+            if relative_path in ignore_scan_paths_set:
+                logging.info(f"Ignoring folder during scan (is_include: false): {relative_path}")
+                dirs.remove(d) # Prune from traversal
+                continue
+
+            # 3. Check if it's an expected path
             if relative_path in expected_paths_set:
                 # This is a known folder, allow os.walk to descend
                 continue
             else:
-                # This is an unknown folder
+                # 4. This is an UNKNOWN folder
                 logging.warning(f"Found unknown folder: {relative_path}")
                 unknown_folders.append(relative_path)
-                dirs_to_prune.append(d) # Add to list to prevent traversal
-                
-        # 3. Prune the unknown folders from 'dirs'
-        # This stops os.walk from descending into them
-        for d_remove in dirs_to_prune:
-            dirs.remove(d_remove)
+                # We DO NOT prune. We let os.walk descend into it.
             
     return unknown_folders
 
-def show_move_files_dialog(root, unknown_folder, structure_json):
+def select_action_cli(unknown_folder, structure_json):
     """
-    Displays a modal Toplevel window with a Treeview of the 
-    defined project structure.
+    Asks the user what to do with an unknown folder.
     
-    Args:
-        root (Tk): The hidden main Tk root.
-        unknown_folder (str): The name of the folder being processed.
-        structure_json (list): The 'structure' list from settings.json.
-
     Returns:
-        str or None: The selected relative path, or None if cancelled.
+        tuple: (action, data)
+        - ('skip', None)
+        - ('move', 'destination_path')
+        - ('add', 'parent_path') 
     """
-    dialog = Toplevel(root)
-    dialog.title(f"Select Destination for '{unknown_folder}'")
-    
-    # Make the dialog modal
-    dialog.transient(root)
-    dialog.grab_set()
-    
-    # Store node_id -> relative_path
-    node_map = {}
-    
-    # This dictionary will hold the result
-    result = {"path": None}
+    print(f"\n────────────────────────────────────────────────────────")
+    print(f" ❓ Dossier inconnu trouvé : '{unknown_folder}'")
+    print(f"────────────────────────────────────────────────────────")
+    print("Que souhaitez-vous faire ?")
+    print("  [ m ]  Déplacer le *contenu* vers un dossier existant.")
+    print("  [ a ]  Ajouter ce dossier (et ses enfants) à settings.json (parent auto-détecté).")
+    print("  [ 0 ]  Ignorer ce dossier (et scanner ses enfants).")
+    print(f"────────────────────────────────────────────────────────")
 
-    # --- Treeview setup ---
-    tree_frame = Frame(dialog)
-    tree_frame.pack(padx=10, pady=10, fill="both", expand=True)
+    action_choice = ''
+    while action_choice not in ['m', 'a', '0']:
+        try:
+            action_choice = input("Votre choix (m, a, 0) : ").lower().strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\nOpération annulée. Ignorer ce dossier.")
+            return 'skip', None
     
-    tree = ttk.Treeview(tree_frame, height=15)
-    tree.pack(side="left", fill="both", expand=True)
+    if action_choice == '0':
+        logging.info(f"Utilisateur a choisi [0] Ignorer pour {unknown_folder}.")
+        return 'skip', None
     
-    scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
-    scrollbar.pack(side="right", fill="y")
-    tree.configure(yscrollcommand=scrollbar.set)
+    # --- NOUVELLE LOGIQUE POUR 'ADD' (AUTO-DÉTECTION) ---
+    if action_choice == 'a':
+        # 1. Calculer automatiquement le chemin du parent
+        parent_path = os.path.dirname(unknown_folder)
+        if not parent_path: # Gère les dossiers à la racine
+            parent_path = "."
+        
+        logging.info(f"Utilisateur a choisi d'AJOUTER '{unknown_folder}'. Parent auto-détecté : '{parent_path}'.")
+        
+        # 2. Vérifier que le parent auto-détecté existe bien dans le JSON
+        parent_node = find_parent_node_in_json(structure_json, os.path.normpath(parent_path))
+        
+        if not parent_node:
+            logging.error(f"Échec de l'ajout auto : Le parent '{parent_path}' n'a pas été trouvé dans settings.json.")
+            print(f"ERREUR : Impossible d'ajouter '{unknown_folder}'.")
+            print(f"Le parent auto-détecté ('{parent_path}') n'existe pas dans l'arbre settings.json.")
+            print("Veuillez d'abord ajouter le dossier parent (s'il est aussi inconnu), ou ignorer celui-ci.")
+            try:
+                input("Appuyez sur Entrée pour continuer...") # Pause pour que l'utilisateur voie l'erreur
+            except (KeyboardInterrupt, EOFError):
+                pass
+            return 'skip', None # Échec gracieux
+        
+        # 3. Le parent existe, retourner l'action 'add' avec le parent trouvé
+        print(f"Parent trouvé : '{parent_path}'. Ajout de '{unknown_folder}' en cours...")
+        return 'add', parent_path
 
-    def populate_tree(parent_id, children_list, base_path):
-        """Recursive helper to populate the ttk.Treeview."""
-        for item in children_list:
-            item_folder_name = get_folder_name(item)
-            if not item_folder_name:
-                continue
+    # --- LOGIQUE EXISTANTE POUR 'MOVE' (DEMANDE DE DESTINATION) ---
+    if action_choice == 'm':
+        print("\nOù souhaitez-vous DÉPLACER le *contenu* ?")
+        prompt_text = "Entrez un numéro de destination (0 pour annuler) : "
+
+        # --- CLI Tree Display Logic (Seulement pour 'move') ---
+        cli_destinations = [] # (display_line, path_value)
+
+        def build_cli_options(structure_list, base_path=".", indent_str=""):
+            """Populate cli_destinations recursively."""
+            prefix_mid = "├─ "
+            prefix_last = "└─ "
+            indent_mid = "│  "
+            indent_last = "   "
+            
+            valid_items = [item for item in structure_list if get_folder_name(item)]
+            
+            for i, item in enumerate(valid_items):
+                item_folder_name = get_folder_name(item)
+                current_path = os.path.join(base_path, item_folder_name)
+                is_last = (i == len(valid_items) - 1)
+                prefix = prefix_last if is_last else prefix_mid
                 
-            current_path = os.path.join(base_path, item_folder_name)
-            
-            # Insert the item into the tree
-            node_id = tree.insert(parent_id, 'end', text=item_folder_name, open=True)
-            
-            # Map the internal Treeview ID to our relative path
-            node_map[node_id] = current_path
-            
-            if item.get('children'):
-                populate_tree(node_id, item['children'], current_path)
+                display_line = f"{indent_str}{prefix}{item_folder_name}"
+                cli_destinations.append((display_line, current_path))
+                
+                if item.get('children'):
+                    new_indent = indent_last if is_last else indent_mid
+                    build_cli_options(item['children'], current_path, indent_str + new_indent)
 
-    # Start populating from the root
-    populate_tree('', structure_json, ".")
-
-    # --- Button setup ---
-    button_frame = Frame(dialog)
-    button_frame.pack(padx=10, pady=(0, 10), fill="x")
-
-    def on_next():
-        selected_id = tree.focus() # Get the ID of the selected item
-        if selected_id in node_map:
-            result["path"] = node_map[selected_id]
-            dialog.destroy()
-        else:
-            messagebox.showwarning("No Selection", "Please select a destination folder.", parent=dialog)
-
-    def on_cancel():
-        result["path"] = None
-        dialog.destroy()
-
-    # Set 'Cancel' as the default action for closing the window
-    dialog.protocol("WM_DELETE_WINDOW", on_cancel)
-
-    # Add buttons
-    Button(button_frame, text="Next", command=on_next, width=10).pack(side="right", padx=5)
-    Button(button_frame, text="Cancel", command=on_cancel, width=10).pack(side="right")
-
-    # Wait for the user to make a choice
-    dialog.wait_window()
+        # Build and display options
+        build_cli_options(structure_json, ".")
+        
+        print("\n[ 0 ]  Annuler / Ignorer")
+        print("-" * 30)
+        for i, (display_line, path) in enumerate(cli_destinations):
+            print(f"[ {i+1:<2} ] {display_line:<30} (-> {path})")
+        print("-" * 30)
+        
+        # Input loop for destination
+        while True:
+            try:
+                choice_str = input(prompt_text)
+                choice_int = int(choice_str)
+                
+                if choice_int == 0:
+                    logging.info(f"Utilisateur a choisi [0] Annuler pour {unknown_folder}.")
+                    return 'skip', None # Treat cancel as skip
+                
+                if 1 <= choice_int <= len(cli_destinations):
+                    selected_path = cli_destinations[choice_int - 1][1]
+                    
+                    logging.info(f"Utilisateur a choisi de DÉPLACER vers [{choice_int}] {selected_path}.")
+                    return 'move', selected_path
+                else:
+                    print(f"Numéro invalide. Doit être entre 0 et {len(cli_destinations)}.")
+            except ValueError:
+                print("Entrée invalide. Veuillez entrer un numéro.")
+            except (KeyboardInterrupt, EOFError):
+                print("\nOpération annulée. Ignorer ce dossier.")
+                logging.warning(f"Saisie annulée pour {unknown_folder}. Ignoré.")
+                return 'skip', None
     
-    return result["path"]
+    # Fallback (ne devrait pas être atteint)
+    return 'skip', None
+
+def find_parent_node_in_json(structure_list, target_path, base_path="."):
+    """
+    Recursively searches the json structure for the node matching target_path.
+    Returns the node (dict) if found, else None.
+    """
+    for item in structure_list:
+        item_folder_name = get_folder_name(item)
+        if not item_folder_name:
+            continue
+        
+        current_path = os.path.normpath(os.path.join(base_path, item_folder_name))
+        
+        if current_path == target_path:
+            return item # Found it
+        
+        if item.get('children'):
+            found = find_parent_node_in_json(item['children'], target_path, current_path)
+            if found:
+                return found
+    return None
+
+def scan_disk_for_children(parent_disk_path):
+    """
+    Scans a directory on disk and returns a list of JSON objects
+    for its subdirectories.
+    """
+    children_nodes = []
+    try:
+        for entry in os.scandir(parent_disk_path):
+            if entry.is_dir():
+                # Ignore hidden/system folders
+                if entry.name.startswith('.') or entry.name in ('__pycache__', 'venv', '.venv'):
+                    continue
+                
+                folder_name = entry.name
+                logging.info(f"  -> Trouvé sous-dossier : {folder_name}")
+                
+                new_node = {
+                    "type": folder_name, # Use folder name as type
+                    "is_include": "true",
+                    "is_path": "true"
+                }
+                
+                # Recurse to find grand-children
+                grand_children = scan_disk_for_children(entry.path)
+                if grand_children:
+                    new_node["children"] = grand_children
+                
+                children_nodes.append(new_node)
+                
+    except FileNotFoundError:
+        logging.warning(f"Scan error: Dossier {parent_disk_path} non trouvé.")
+    except Exception as e:
+        logging.error(f"Erreur lors du scan de {parent_disk_path}: {e}")
+        
+    return children_nodes
+
+def add_folder_to_settings(json_data, unknown_folder_path, parent_path, settings_json_path):
+    """
+    Adds the unknown folder and its children to settings.json
+    under the specified parent_path.
+    """
+    logging.info(f"Tentative d'ajout de '{unknown_folder_path}' à settings.json sous '{parent_path}'...")
+    
+    # 1. Find the parent node in the JSON structure
+    parent_node = find_parent_node_in_json(json_data.get('structure', []), os.path.normpath(parent_path))
+    
+    if not parent_node:
+        logging.error(f"Impossible de trouver le noeud parent '{parent_path}' dans settings.json. Ajout annulé.")
+        print(f"ERREUR: Parent '{parent_path}' non trouvé dans JSON. Annulé.")
+        return
+
+    # 2. Get the name of the new folder (the last part of the path)
+    new_folder_name = os.path.basename(unknown_folder_path)
+    
+    # 3. Create the new JSON node for this folder
+    new_node = {
+        "type": new_folder_name, # Default to folder name
+        "is_include": "true",
+        "is_path": "true"
+    }
+    
+    # 4. Scan the folder on disk for its children
+    full_disk_path = os.path.join(os.getcwd(), unknown_folder_path)
+    children = scan_disk_for_children(full_disk_path)
+    if children:
+        new_node["children"] = children
+
+    # 5. Add the new node to the parent's "children" list
+    if "children" not in parent_node:
+        parent_node["children"] = []
+    
+    parent_node["children"].append(new_node)
+    logging.info(f"Noeud {new_folder_name} ajouté avec succès à la structure JSON (en mémoire).")
+    
+    # 6. Write the modified json_data back to the settings.json file
+    try:
+        with open(settings_json_path, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=4) # indent=4 for pretty print
+        logging.info(f"'{settings_json_path}' mis à jour avec succès sur le disque.")
+        print(f"'{settings_json_path}' a été mis à jour.")
+        
+    except Exception as e:
+        logging.error(f"ERREUR fatale: Impossible d'écrire dans '{settings_json_path}': {e}")
+        print(f"ERREUR: Impossible de sauvegarder les modifications dans '{settings_json_path}'.")
 
 def copy_folder_contents(src, dst, root_tk):
     """
@@ -1084,6 +1282,19 @@ def copy_folder_contents(src, dst, root_tk):
         logging.error(f"Error copying files from '{src}' to '{dst}': {e}")
         messagebox.showerror("Copy Error", f"Failed to copy files from '{src}' to '{dst}'.\n\nError: {e}", parent=root_tk)
    
+def delete_source_folder(src, root_tk):
+    """
+    Deletes the source folder after a successful copy.
+    """
+    logging.info(f"Tentative de suppression du dossier d'origine : '{src}'...")
+    try:
+        shutil.rmtree(src)
+        logging.info("Dossier d'origine supprimé avec succès.")
+        print(f"Nettoyage : Suppression de '{src}' terminée.")
+    except Exception as e:
+        logging.error(f"Erreur lors de la suppression du dossier '{src}': {e}")
+        messagebox.showerror("Erreur de suppression", f"Échec de la suppression du dossier d'origine '{src}'.\n\nVous devrez peut-être le supprimer manuellement.\n\nErreur: {e}", parent=root_tk)
+
 # =================================================================
 # EXECUTIONS
 # =================================================================
@@ -1159,12 +1370,14 @@ def main_build():
     
     json_source_absolutePath = os.path.join(os.getcwd(), SETTINGS_FILE) # Local source (root)
     json_data = None
+    loaded_settings_json_path = None # <--- VARIABLE AJOUTÉE POUR STOCKER LE CHEMIN
     
     if pathsAHK_jsonPathVar and os.path.exists(pathsAHK_jsonPathVar) and not is_initial_run:
         # Standard Run: load the remote settings.json (from .config/settings.json)
         json_data_check = load_settings_json(pathsAHK_jsonPathVar)
         if json_data_check:
-            json_data, _ = json_data_check
+            # CORRECTION : Capturer le chemin absolu qui a été chargé
+            json_data, loaded_settings_json_path = json_data_check
             logging.info(f"Configuration path confirmed by '{PATHFILE}'.")
         else:
             logging.warning(f"Remote settings.json file at '{pathsAHK_jsonPathVar}' is invalid. Attempting local load.")
@@ -1176,7 +1389,11 @@ def main_build():
         local_json_data_check = load_settings_json(json_source_absolutePath)
         
         if local_json_data_check:
-            json_data, json_source_absolutePath = local_json_data_check
+            # CORRECTION : Capturer le chemin absolu qui a été chargé
+            json_data, loaded_settings_json_path = local_json_data_check
+            # Mettre à jour json_source_absolutePath pour que la section 5 sache quel fichier déplacer
+            json_source_absolutePath = loaded_settings_json_path
+            
             if not is_initial_run:
                 is_initial_run = True 
             logging.info("'New Structure' mode detected: Loading settings.json locally.")
@@ -1184,7 +1401,8 @@ def main_build():
             logging.fatal(f"Initial run mode, but '{SETTINGS_FILE}' not found locally at '{json_source_absolutePath}'.")
             exit_script(EXIT_CODE_ERROR)
     
-    if not json_data:
+    # CORRECTION : Vérifier aussi que le chemin a bien été stocké
+    if not json_data or not loaded_settings_json_path:
         logging.fatal(f"Could not find or load '{SETTINGS_FILE}' locally or via '{PATHFILE}'.")
         exit_script(EXIT_CODE_ERROR)
 
@@ -1298,55 +1516,106 @@ def main_build():
     unknown_folders = find_unknown_folders(expected_paths, paths_to_ignore)
     
     if unknown_folders:
+        
+        # --- NOUVELLE VÉRIFICATION DE CONSOLE ---
+        if not sys.stdout.isatty():
+            logging.warning("Dossiers inconnus trouvés, mais pas de terminal interactif (isatty=False).")
+            logging.info("Tentative de relance dans une nouvelle console...")
+
+            command_args = [sys.executable] + sys.argv
+            cmd_string = f'cmd.exe /k "{" ".join(command_args)}"'
+            
+            try:
+                subprocess.Popen(cmd_string, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                logging.info(f"Script relancé avec succès dans une nouvelle console. Ce processus (caché) va se terminer.")
+                exit_script(0) 
+                return
+            
+            except Exception as e:
+                logging.error(f"Échec de la relance dans une nouvelle console: {e}")
+                root_err = Tk()
+                root_err.withdraw()
+                messagebox.showerror("Erreur Critique", f"Impossible d'ouvrir un terminal pour gérer les dossiers inconnus.\n\nErreur: {e}")
+                root_err.destroy()
+                exit_script(EXIT_CODE_ERROR)
+                return
+        
+        # --- SI ON EST ICI, LA CONSOLE EST VISIBLE ---
         logging.warning(f"Found {len(unknown_folders)} unknown folders.")
         
-        # Create a single, hidden Tk root for all dialogs in this section
         dialog_root = Tk()
         dialog_root.withdraw()
         
         structure_json_list = json_data.get('structure', [])
         
+        # NEW: Set to track folders that have been moved or added
+        handled_paths = set() 
+        
+        print(f"\n--- GESTION DES {len(unknown_folders)} DOSSIERS INCONNUS ---")
+        
         for unknown_folder in unknown_folders:
-            msg = (f"Found an unknown folder: {unknown_folder}\n\n"
-                   f"Do you want to move its contents to a folder in your defined structure?")
             
-            # Loop to allow user to 'Cancel' the treeview and return to this question
-            while True:
-                response = messagebox.askyesno("Unknown Folder Found", msg, parent=dialog_root)
+            # --- NEW: Check if this folder is a child of an already handled one ---
+            is_already_handled = False
+            for handled_root in handled_paths:
+                # Check if unknown_folder starts with "handled_root/"
+                if unknown_folder.startswith(handled_root + os.sep):
+                    logging.info(f"Skipping '{unknown_folder}' as it is a child of already handled '{handled_root}'.")
+                    is_already_handled = True
+                    break
+            
+            if is_already_handled:
+                continue
+            # --- End of check ---
+
+            # 1. Call the new action function
+            action, data = select_action_cli(
+                unknown_folder,
+                structure_json_list
+            )
+            
+            if action == 'move':
+                # 2. User chose 'move'
+                destination = data
+                src_path = os.path.join(os.getcwd(), unknown_folder)
+                dst_path = os.path.join(os.getcwd(), destination)
                 
-                if not response:
-                    # User clicked 'No'
-                    logging.info(f"User skipped moving files from {unknown_folder}.")
-                    break # Exit 'while True' loop, move to next unknown_folder
+                print(f"Déplacement de '{src_path}' vers '{dst_path}'...")
                 
-                # User clicked 'Yes', show the Treeview dialog
-                destination = show_move_files_dialog(
-                    dialog_root, 
-                    unknown_folder, 
-                    structure_json_list
+                copy_folder_contents(src_path, dst_path, dialog_root)
+                delete_source_folder(src_path, dialog_root)
+                
+                # Add to handled set so we skip its children
+                handled_paths.add(unknown_folder) 
+                
+            elif action == 'add':
+                # 3. User chose 'add'
+                parent_path = data
+                
+                # Call the new function to write to settings.json
+                # We pass the *full* json_data dict, and the path to settings.json
+                add_folder_to_settings(
+                    json_data,          # The full dict
+                    unknown_folder,     # e.g., "Library/NewModule"
+                    parent_path,        # e.g., "Library"
+                    loaded_settings_json_path # <--- CORRECTION : Utiliser le chemin chargé
                 )
                 
-                if destination:
-                    # User selected a destination and clicked 'Next'
-                    src_path = os.path.join(os.getcwd(), unknown_folder)
-                    dst_path = os.path.join(os.getcwd(), destination)
-                    
-                    # Perform the copy
-                    copy_folder_contents(src_path, dst_path, dialog_root)
-                    
-                    break # Exit 'while True' loop, move to next unknown_folder
-                else:
-                    # User clicked 'Cancel' in the treeview dialog
-                    logging.info("User cancelled destination selection. Re-asking...")
-                    # The 'while True' loop repeats, re-showing the askyesno dialog
+                # Add to handled set so we skip its children
+                handled_paths.add(unknown_folder)
+
+            else:
+                # 4. User chose 'skip'
+                logging.info(f"L'utilisateur a ignoré le déplacement/ajout pour {unknown_folder}.")
+                print(f"Dossier '{unknown_folder}' ignoré.")
+                # We DO NOT add to handled_paths, allowing children to be processed
         
         # Clean up the hidden Tk root
         dialog_root.destroy()
-        logging.info("--- Finished processing unknown folders ---")
+        logging.info("--- Fin du traitement des dossiers inconnus ---")
         
     else:
         logging.info("No unknown folders found. Structure is clean.")
-
     # ------------------------------------------------------------------------------------
     # 5. Post-build (Move JSON and write PATHFILE to ROOT)
     # ------------------------------------------------------------------------------------

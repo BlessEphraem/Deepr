@@ -41,7 +41,7 @@ Need to do a "Double Value Copy/Paste" func for pasting double values (ex: Motio
         } ExitApp
     }
 
-    TraySetIcon(A_Path.Icons "\deepr_Icon.png")
+    TraySetIcon(A_Path.SupportFiles.Icons "\deepr_Icon.png")
 
     if (PID := !ProcessExist("komorebi.exe"))
         Komorebic("start", &Result)

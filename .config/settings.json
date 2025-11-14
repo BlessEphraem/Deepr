@@ -4,7 +4,19 @@
         {
             "name": ".config",
             "type": "Configuration",
-            "is_include": "true"
+            "is_include": "true",
+            "children": [
+                {
+                    "type": ".BackupMaker",
+                    "is_include": "false",
+                    "is_path": "false"
+                },
+                {
+                    "type": ".ProjectManager",
+                    "is_include": "false",
+                    "is_path": "false"
+                }
+            ]
         },
         {
             "name": ".wiki",
@@ -47,90 +59,103 @@
             "is_include": "true",
             "children": [
                 {
-                    "type": "Core",
-                    "Active": "Windows",
-                    "description": "Scripts essentiels au fonctionnement global.",
+                    "type": "AHK",
                     "is_include": "true",
                     "children": [
                         {
-                            "type": "Classes",
-                            "is_include": "true"
+                            "type": "Core",
+                            "Active": "Windows",
+                            "description": "Scripts essentiels au fonctionnement global.",
+                            "is_include": "true",
+                            "children": [
+                                {
+                                    "type": "Classes",
+                                    "is_include": "true"
+                                },
+                                {
+                                    "type": "Functions",
+                                    "is_include": "true"
+                                }
+                            ]
                         },
                         {
-                            "type": "Functions",
-                            "is_include": "true"
+                            "type": "GUIs",
+                            "is_include": "true",
+                            "children": [
+                                {
+                                    "type": "SupportFiles",
+                                    "is_path": "false",
+                                    "is_include": "true"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "Modules",
+                            "description": "Logiciels ou contextes sp\u00e9cifiques.",
+                            "is_include": "true",
+                            "children": [
+                                {
+                                    "type": "Windows",
+                                    "Active": "Windows",
+                                    "is_include": "true",
+                                    "children": [
+                                        {
+                                            "type": "Classes",
+                                            "is_path": "false",
+                                            "is_include": "true"
+                                        },
+                                        {
+                                            "type": "Functions",
+                                            "is_path": "false",
+                                            "is_include": "true"
+                                        }
+                                    ]
+                                },
+                                {
+                                    "name": "Premiere Pro",
+                                    "type": "PremierePro",
+                                    "Active": "ahk_exe Adobe Premiere Pro.exe",
+                                    "is_include": "true",
+                                    "children": [
+                                        {
+                                            "type": "Classes",
+                                            "is_path": "false",
+                                            "is_include": "true"
+                                        },
+                                        {
+                                            "type": "Functions",
+                                            "is_path": "false",
+                                            "is_include": "true"
+                                        }
+                                    ]
+                                },
+                                {
+                                    "name": "After Effects",
+                                    "type": "AfterFx",
+                                    "Active": "ahk_exe AfterFX.exe",
+                                    "is_include": "true",
+                                    "children": [
+                                        {
+                                            "type": "Classes",
+                                            "is_path": "false",
+                                            "is_include": "true"
+                                        },
+                                        {
+                                            "type": "Functions",
+                                            "is_path": "false",
+                                            "is_include": "true"
+                                        }
+                                    ]
+                                }
+                            ]
                         }
                     ]
                 },
                 {
-                    "type": "GUIs",
-                    "is_include": "true",
-                    "children":[
-                        {
-                            "type": "SupportFiles",
-                            "is_path": "false",
-                            "is_include": "true"
-                        }
-                    ] 
-                },
-                {
-                    "type": "Modules",
-                    "description": "Logiciels ou contextes spécifiques.",
+                    "type": "Pythons",
                     "is_include": "true",
                     "children": [
-                        {
-                            "type": "Windows",
-                            "Active": "Windows",
-                            "is_include": "true",
-                            "children": [
-                                {
-                                    "type": "Classes",
-                                    "is_path": "false",
-                                    "is_include": "true"
-                                },
-                                {
-                                    "type": "Functions",
-                                    "is_path": "false",
-                                    "is_include": "true"
-                                }
-                            ]
-                        },
-                        {
-                            "name": "Premiere Pro",
-                            "type": "PremierePro",
-                            "Active": "ahk_exe Adobe Premiere Pro.exe",
-                            "is_include": "true",
-                            "children": [
-                                {
-                                    "type": "Classes",
-                                    "is_path": "false",
-                                    "is_include": "true"
-                                },
-                                {
-                                    "type": "Functions",
-                                    "is_path": "false",
-                                    "is_include": "true"
-                                }
-                            ]
-                        },
-                        {
-                            "name": "After Effects",
-                            "type": "AfterFx",
-                            "Active": "ahk_exe AfterFX.exe",
-                            "is_include": "true",
-                            "children": [
-                                {
-                                    "type": "Classes",
-                                    "is_path": "false",
-                                    "is_include": "true"
-                                },
-                                {
-                                    "type": "Functions",
-                                    "is_path": "false",
-                                    "is_include": "true"
-                                }
-                            ]
-                        }
+                        {}
                     ]
                 }
             ]

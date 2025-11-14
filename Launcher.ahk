@@ -201,7 +201,7 @@ class Launcher {
         command := pythonCmd " " StartScript " build " pythonCmd " " OutputPaths " " OutputIncludes " " Log
 
         Launcher.Log.Write("INFO", "Command: " command)
-        exitCode := RunWait(command, , "Hide")
+        exitCode := RunWait(command, , )
         ; RunWait returns the exit code of the launched program
         ; Passing pythonCmd as an argument to the Python script to save it in "path.ini" for easier reuse later
         ; Use the StartScript variable if you implement Python detection (see Python() function below)

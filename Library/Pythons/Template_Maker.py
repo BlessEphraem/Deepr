@@ -28,7 +28,7 @@ def get_config_path() -> str:
     Ensures the directory exists.
     """
     APP_NAME = "TemplateMaker"
-    CONFIG_NAME = "TemplateMaker_Config.ini"
+    CONFIG_NAME = "templates.ini"
     
     try:
         if sys.platform == "win32":
@@ -59,7 +59,7 @@ def get_config_path() -> str:
 # This function call replaces the original static string
 CONFIG_FILE = get_config_path() 
 CONFIG_SECTION = "Settings"
-CONFIG_KEY = "TemplateSourceDirectory"
+CONFIG_KEY = "Directory"
 
 
 def handle_config_error() -> bool:
