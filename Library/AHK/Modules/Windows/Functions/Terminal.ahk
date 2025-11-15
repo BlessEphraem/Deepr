@@ -22,6 +22,7 @@ class Terminal {
      * @param {Integer} Width - The desired width of the window.
      * @param {Integer} Height - The desired height of the window.
      * @param {Integer} CheckInterval - Timer interval in ms.
+     * @param {Integer} profilePath - Load from a .ps1 file.
      */
     init(Title, Exe, Position, Width, Height, CheckInterval, profilePath) {
         ; Check if the terminal window already exists
@@ -38,7 +39,7 @@ class Terminal {
                 ;    Cela charge les variables/fonctions du script dans la session actuelle.
                 
                 ; Note : Les doubles quotes ('') autour du path dans le Format() deviennent des simples quotes dans la string finale pour PowerShell.
-                RunStr := Format('{} -w 0 nt --title "{}" powershell.exe -NoExit -Command . `"{}"` ', Exe, Title, ProfilePath)
+                RunStr := Format('{} -w 0 nt --title "{}" powershell.exe -NoExit -Command "{}"', Exe, Title, ProfilePath)
 
             } 
             else {

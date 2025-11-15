@@ -192,12 +192,18 @@ class Launcher {
     }
 
     static Build(pythonCmd, StartScript, OutputPaths, OutputIncludes, Log := "") {
-        if Launcher.Log.Toggle = True
+
+        ToggleHide := ""
+
+        if Launcher.Log.Toggle = True {
             Log := "--log"
+        } 
+
         Launcher.Log.Write(
             "INFO", "Starting the build process. 'Launcher.Log.Toggle' is set to true," . 
             " so '--log' will be appended as an argument for main.py to enable its internal logging functionality."
             )
+
         command := pythonCmd " " StartScript " build " pythonCmd " " OutputPaths " " OutputIncludes " " Log
 
         Launcher.Log.Write("INFO", "Command: " command)

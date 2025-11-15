@@ -1,7 +1,7 @@
 # Deepr AHK Framework
 
 Deepr is a modular and dynamic framework designed to help you organize, manage, and build complex [AutoHotkey v2](https://www.autohotkey.com/) scripts. It takes the guesswork out of structuring your project by using a simple `settings.json` file as the single source of truth, automatically generating the necessary `#include` directives and a convenient `A_Path` class to access your project files.
-
+eee
 Whether you want a fully managed framework for all your scripts or just want to browse a collection of useful, standalone AHK and Python modules, Deepr has you covered.
 
 ## 🛠️ Prerequisites

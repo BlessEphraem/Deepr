@@ -176,7 +176,7 @@ Appskey::{
 }
 
 #²::{
-    Terminal("Deepr Terminal", "wt.exe", 3, 1200, 600, 300, A_Path.Configuration . "\powershell_profile.ps1")
+    Terminal("Deepr Terminal", "wt.exe", 3, 1200, 800, 300, A_Path.Configuration . "\powershell_profile.ps1")
     GUI_Debug.ReturnDebug "{Win} + {²}", "Terminal() => Run/Focus Deepr Terminal", true
 }
 
