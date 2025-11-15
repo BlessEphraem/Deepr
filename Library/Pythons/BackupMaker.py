@@ -15,7 +15,7 @@ def get_yes_no(prompt):
 
 def main():
     """Fonction principale du script de sauvegarde."""
-    print("--- Bienvenue dans Backup_Maker ---")
+    print("--- Bienvenue dans BackupMaker ---")
     print("\n")
     
     # 1. Demander le fichier Backup.txt

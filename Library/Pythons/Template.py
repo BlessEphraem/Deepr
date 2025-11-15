@@ -25,26 +25,17 @@ from typing import Optional, Tuple
 def get_config_path() -> str:
     """
     Gets the platform-specific config file path.
-    Ensures the directory exists.
+    Forces usage of [USER]/.config/TemplateMaker on all OS.
     """
     APP_NAME = "TemplateMaker"
     CONFIG_NAME = "templates.ini"
     
     try:
-        if sys.platform == "win32":
-            # Windows (e.g., C:\Users\<User>\AppData\Roaming\TemplateMaker)
-            base_dir = os.getenv('APPDATA')
-            if not base_dir:
-                raise OSError("APPDATA environment variable not set.")
-            config_dir = os.path.join(base_dir, APP_NAME)
-        elif sys.platform == "darwin":
-            # macOS (e.g., /Users/<User>/Library/Application Support/TemplateMaker)
-            config_dir = os.path.join(os.path.expanduser('~/Library/Application Support'), APP_NAME)
-        else:
-            # Linux (e.g., /home/<User>/.config/TemplateMaker)
-            config_dir = os.path.join(
-                os.getenv('XDG_CONFIG_HOME', os.path.expanduser('~/.config')), APP_NAME
-            )
+        # On récupère le dossier utilisateur (ex: C:\Users\Toi ou /home/toi)
+        user_home = os.path.expanduser('~')
+        
+        # On construit le chemin : [USER]/.config/TemplateMaker
+        config_dir = os.path.join(user_home, '.config', APP_NAME)
         
         # Ensure the directory exists before trying to read/write the file
         os.makedirs(config_dir, exist_ok=True)
@@ -52,9 +43,9 @@ def get_config_path() -> str:
 
     except (OSError, TypeError) as e:
         # Fallback to current directory if we can't create the config dir
-        print(f"[WARNING] Could not create or access platform config directory: {e}")
+        print(f"[WARNING] Could not create or access config directory: {e}")
         print(f"Falling back to local file: ./{CONFIG_NAME}")
-        return CONFIG_NAME # Return the original local file name
+        return CONFIG_NAME
 
 # This function call replaces the original static string
 CONFIG_FILE = get_config_path() 
@@ -272,20 +263,35 @@ def main():
     # 1. Get and validate the template source directory
     source_dir = get_template_source_dir()
     if not source_dir:
-        return  # User aborted or critical error
+        return
 
     # 2. List and select a template
     selection = select_template(source_dir)
     if not selection:
-        return  # No templates found or user error
+        return
     
     source_template_path, template_name = selection
 
-    # 3. Get destination path
-    dest_dir = get_destination_path()
+    # 3. Get destination path (Argument 1)
+    if len(sys.argv) > 1:
+        arg_path = sys.argv[1]
+        if os.path.isdir(arg_path):
+            dest_dir = arg_path
+            print(f"\nTarget directory defined by argument: '{dest_dir}'")
+        else:
+            print(f"\n[WARNING] The argument '{arg_path}' is not a valid directory.")
+            dest_dir = get_destination_path()
+    else:
+        dest_dir = get_destination_path()
 
-    # 4. Get new project name
-    new_name = get_new_template_name()
+    # 4. Get new project name (Argument 2 - NOUVEAU)
+    # On vérifie si un 2ème argument existe (sys.argv[2])
+    if len(sys.argv) > 2:
+        new_name = sys.argv[2]
+        print(f"Project name defined by argument: '{new_name}'")
+    else:
+        # Sinon, on demande à l'utilisateur comme avant
+        new_name = get_new_template_name()
 
     # 5. Perform the copy
     copy_template(source_template_path, dest_dir, new_name)
