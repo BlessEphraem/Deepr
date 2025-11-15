@@ -8,9 +8,9 @@
      */
 class Terminal {
 
-    __new(title, exe, position := 3, width := 500, height := 300, checkInterval := 300) {
+    __new(title, exe, position := 3, width := 500, height := 300, checkInterval := 300, profilePath := "") {
         ; Call the initialization function
-        this.Init(title, exe, position, width, height, checkInterval)
+        this.Init(title, exe, position, width, height, checkInterval, profilePath)
     }
 
     /**
@@ -23,14 +23,30 @@ class Terminal {
      * @param {Integer} Height - The desired height of the window.
      * @param {Integer} CheckInterval - Timer interval in ms.
      */
-    init(Title, Exe, Position, Width, Height, CheckInterval) {
+    init(Title, Exe, Position, Width, Height, CheckInterval, profilePath) {
         ; Check if the terminal window already exists
         this.hwnd := WinExist(Title)
         
         if (!this.hwnd) {
-            ; Launch Windows Terminal with a custom title and PowerShell profile
-            ; Note: Use backticks (`) for internal quoting in AHK v2 Run()
-            Run(Format('{} -w 0 nt -p "PowerShell" --title `"{}"` ', Exe, Title))
+
+            if (ProfilePath != "") {
+                ; Explication de la commande :
+                ; 1. wt.exe ... --title "..." : Lance le terminal avec le titre.
+                ; 2. powershell.exe : L'application à lancer DANS le terminal.
+                ; 3. -NoExit : Empêche la fenêtre de se fermer après l'exécution du script.
+                ; 4. -Command ". 'chemin'" : Le point (.) signifie "Dot Source". 
+                ;    Cela charge les variables/fonctions du script dans la session actuelle.
+                
+                ; Note : Les doubles quotes ('') autour du path dans le Format() deviennent des simples quotes dans la string finale pour PowerShell.
+                RunStr := Format('{} -w 0 nt --title "{}" powershell.exe -NoExit -Command . `"{}"` ', Exe, Title, ProfilePath)
+
+            } 
+            else {
+                ; Comportement par défaut si aucun profil n'est donné
+                RunStr := Format('{} -w 0 nt -p "PowerShell" --title "{}"', Exe, Title)
+            }
+
+            Run(RunStr)
 
             ; Wait for the window with the title to appear
             this.hwnd := WinWait(Title, , 5) ; Wait max 5 seconds

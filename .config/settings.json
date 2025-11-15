@@ -5,18 +5,7 @@
             "name": ".config",
             "type": "Configuration",
             "is_include": "true",
-            "children": [
-                {
-                    "type": ".BackupMaker",
-                    "is_include": "false",
-                    "is_path": "false"
-                },
-                {
-                    "type": ".ProjectManager",
-                    "is_include": "false",
-                    "is_path": "false"
-                }
-            ]
+            "children": []
         },
         {
             "name": ".wiki",

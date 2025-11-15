@@ -58,26 +58,22 @@ def setup_logging(enable_file_log=False):
 
 def exit_script(code=0):
     """
-    Closes the script with the specified exit code and displays a
-    user-friendly message box.
+    Closes the script with the specified exit code.
+    Displays a message box ONLY if an error occurred (code != 0).
     """
     if code == 0:
         logging.info(f"Operation finished successfully. Exit code: {code}")
     else:
         logging.error(f"Operation finished with error. Exit code: {code}")
-    
-    # Display a message box to inform the user of the outcome.
-    # The main Tk window is hidden to avoid showing an empty window.
-    root = Tk()
-    root.withdraw() # Hide the main window
-    
-    if code == 0:
-        messagebox.showinfo("Success", "The project structure has been verified and/or created successfully.")
-    else:
-        # FATAL ERROR. The calling AHK script is expected to detect exit code 1 and halt.
+        
+        # Display a message box ONLY to inform the user of a FATAL ERROR.
+        # The main Tk window is hidden to avoid showing an empty window.
+        root = Tk()
+        root.withdraw() # Hide the main window
+        
         messagebox.showerror("Fatal Error", f"A critical error occurred (see {LOG_FILE}). The process is terminated.")
-    
-    root.destroy()
+        
+        root.destroy()
 
     for handler in logging.root.handlers:
         handler.flush()
@@ -329,6 +325,40 @@ def create_structure(settings):
     except Exception:
         # Ensure the script stops on a folder creation error
         exit_script(EXIT_CODE_ERROR)
+
+def remove_missing_entries(structure_list, base_path="."):
+    """
+    Recursively scans the structure_list. If a folder defined in the list
+    does not exist on the disk, it is removed from the list.
+    
+    Returns:
+        bool: True if modifications were made, False otherwise.
+    """
+    modified = False
+    # Iterate backwards to allow safe deletion from the list while looping
+    for i in range(len(structure_list) - 1, -1, -1):
+        item = structure_list[i]
+        
+        item_folder_name = get_folder_name(item)
+        if not item_folder_name:
+            continue
+
+        current_path = os.path.join(base_path, item_folder_name)
+        
+        # Check existence
+        if not os.path.exists(current_path):
+            # FOLDER MISSING: Remove from JSON structure silently
+            logging.info(f"Sync: Folder '{current_path}' not found on disk. Removing from settings.")
+            del structure_list[i]
+            modified = True
+        else:
+            # FOLDER EXISTS: Check children recursively
+            if item.get('children'):
+                # If children are modified, bubble up the True flag
+                if remove_missing_entries(item['children'], current_path):
+                    modified = True
+                    
+    return modified
 
 def clean_ahk_path(path_to_clean):
     """
@@ -1601,18 +1631,36 @@ def main_build():
     # --- End of RootName Change Detection ---
         
     # ------------------------------------------------------------------------------------
-    # 4. Generate folder structure
+    # 4. Sync and Generate folder structure
     # ------------------------------------------------------------------------------------
+    
+    # Instead of checking expected paths and asking the user, we now
+    # prune the JSON structure to match reality (remove missing folders).
+    logging.info("Synchronizing settings.json with current disk structure...")
+    
+    structure_was_modified = remove_missing_entries(json_data['structure'])
+    
+    if structure_was_modified:
+        logging.info("Structure mismatched. Missing folders removed from memory.")
+        # Save the updated JSON to disk immediately so the file is clean
+        try:
+            with open(loaded_settings_json_path, 'w', encoding='utf-8') as f:
+                json.dump(json_data, f, indent=4)
+            logging.info(f"Updated '{SETTINGS_FILE}' saved successfully.")
+        except Exception as e:
+            logging.error(f"Error saving updated settings.json: {e}")
+            # We continue even if save fails, using the in-memory structure
+
+    # We still run create_structure. 
+    # Since we just removed missing folders from json_data, this will effectively 
+    # just verify that the remaining folders still exist (which they should).
+    create_structure(json_data)
+
     try:
         expected_paths = get_expected_paths(json_data['structure'])
     except ValueError as e:
         logging.fatal(f"FATAL VALIDATION ERROR: {e}")
         exit_script(EXIT_CODE_ERROR)
-    
-    # This step asks to create missing folders
-    compare_structure(expected_paths, is_initial_run)
-    # This step creates all defined folders
-    create_structure(json_data)
     
     # ------------------------------------------------------------------------------------
     # 4.5. Handle unknown folders
