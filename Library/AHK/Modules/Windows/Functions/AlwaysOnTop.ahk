@@ -14,7 +14,7 @@ AlwaysOnTop(Sound := true)
         WinSetAlwaysOnTop 0, HWND
         ; Bip pour indiquer la désactivation
         if Sound
-            SoundPlay A_Path.Sounds "\Button3.wav"
+            SoundPlay A_Path.SupportFiles.Sounds "\Button3.wav"
     }
     Else
     {
@@ -22,6 +22,6 @@ AlwaysOnTop(Sound := true)
         WinSetAlwaysOnTop 1, HWND
         ; Bip pour indiquer l'activation
         if Sound
-            SoundPlay A_Path.Sounds "\Button1.wav"
+            SoundPlay A_Path.SupportFiles.Sounds "\Button1.wav"
     }
 }

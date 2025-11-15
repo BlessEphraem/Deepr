@@ -1,19 +1,17 @@
-#!/usr/bin/env python3
-"""
-ProjectManager.py
-
-Outil CLI pour la gestion de projets créatifs.
-Version : Stockage AppData + Option de nommage (Client - Projet)
-"""
-
 import os
 import sys
 import json
 import shutil
 import subprocess
 import configparser
-from datetime import datetime
+import platform # <-- 1. AJOUTER CET IMPORT
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+
+try:
+    import receiver_GoogleApi
+except ImportError:
+    receiver_GoogleApi = None # Gestion gracieuse si le module manque
 
 # --- GESTION DES CHEMINS SYSTÈME (APPDATA) ---
 
@@ -44,7 +42,13 @@ def get_app_data_dir() -> str:
 APP_DIR = get_app_data_dir()
 SETTINGS_FILE = os.path.join(APP_DIR, "settings.json")
 PROJECTS_DB = os.path.join(APP_DIR, "projects.ini")
-TEMPLATE_MAKER_SCRIPT = "TemplateMaker.py"
+
+# --- MODIFICATION ---
+# On récupère le chemin absolu du dossier où se trouve Project.py
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# On construit le chemin complet vers Template.py
+TEMPLATE_MAKER_SCRIPT = os.path.join(SCRIPT_DIR, "Template.py")
+# --- FIN MODIFICATION ---
 
 # --- GESTION DE LA CONFIGURATION (settings.json) ---
 
@@ -133,7 +137,7 @@ def init_settings() -> dict:
     settings = {
         "Projects_Directory": proj_dir,
         "Title_AddCustomer": add_cust_title, # Nouvelle clé
-        "GoogleAPI": False,
+        "GoogleAPI": use_google,
         "User_Wants_Google": use_google,
         "Customers": customers,
         "Steps": steps
@@ -160,6 +164,32 @@ def load_projects_db() -> configparser.ConfigParser:
 def save_projects_db(config: configparser.ConfigParser):
     with open(PROJECTS_DB, 'w', encoding='utf-8') as f:
         config.write(f)
+
+# --- 2. AJOUTER CETTE NOUVELLE FONCTION ---
+def open_file_explorer(path: str):
+    """
+    Ouvre le gestionnaire de fichiers à l'emplacement spécifié,
+    de manière multi-plateforme.
+    """
+    if not os.path.isdir(path):
+        print(f"[ERREUR] Impossible d'ouvrir le dossier, chemin introuvable : {path}")
+        return
+        
+    try:
+        # os.path.realpath() résout les liens symboliques et normalise le chemin
+        real_path = os.path.realpath(path)
+        
+        if sys.platform == "win32":
+            os.startfile(real_path)
+        elif sys.platform == "darwin": # macOS
+            subprocess.run(["open", real_path])
+        else: # Linux
+            subprocess.run(["xdg-open", real_path])
+        print(f"[INFO] Ouverture de {real_path}...")
+    except Exception as e:
+        print(f"[ERREUR] Impossible d'ouvrir le gestionnaire de fichiers : {e}")
+# --- FIN DE L'AJOUT ---
+
 
 # --- COMMANDES ---
 
@@ -210,7 +240,7 @@ def command_view():
         command_view()
 
 def command_add():
-    """Workflow de création de projet."""
+    """Workflow de création de projet avec planification étape par étape."""
     settings = load_settings()
     
     print("\n--- NOUVEAU PROJET ---")
@@ -240,99 +270,210 @@ def command_add():
         print("Le titre ne peut pas être vide.")
         project_title = input("Titre du projet: ").strip()
 
-    deadline = ""
+    # --- INITIALISATION VARIABLES ---
+    deadline_str = ""
+    deadline_obj = None # Sera calculé automatiquement basé sur la date la plus lointaine
     send_to_google = False
     
+    # Liste qui contiendra les événements à créer : [{'title': '...', 'date': datetime}, ...]
+    events_to_create = [] 
+
+    # --- BLOC PLANIFICATION (BOUCLE SUR LES ÉTAPES) ---
     if settings.get("GoogleAPI", False):
-        date_str = input("Deadline (JJ-MM-AA) [Laisser vide pour ignorer]: ").strip()
-        if date_str:
-            try:
-                datetime.strptime(date_str, "%d-%m-%y")
-                deadline = date_str
-                send_to_google = True
-            except ValueError:
-                print("Format de date invalide. Google Calendar ignoré.")
+        receiver_script_path = os.path.join(SCRIPT_DIR, "receiver_GoogleApi.py")
+        exchange_file = os.path.join(SCRIPT_DIR, "selected_date.txt")
+
+        if not os.path.exists(receiver_script_path):
+             print("[AVERTISSEMENT] Script 'receiver_GoogleApi.py' introuvable.")
+        else:
+            steps = settings.get("Steps", [])
+            
+            # Liste des "choses" à planifier
+            # Si aucune étape config, on planifie juste une "Deadline"
+            items_to_schedule = steps if steps else ["DEADLINE"]
+            
+            print(f"\n[PLANIFICATION] {len(items_to_schedule)} événement(s) à définir.")
+            
+            for step_name in items_to_schedule:
+                # Nettoyage fichier échange
+                if os.path.exists(exchange_file): os.remove(exchange_file)
+                
+                # On prépare le titre affiché dans l'interface calendrier pour guider l'utilisateur
+                # Ex: "MonProjet (Etape: Review)"
+                display_title = f"{project_title} ({step_name})"
+                
+                print(f"\n--> Sélection de la date pour : {step_name}")
+                try:
+                    # Lancement TUI pour CETTE étape
+                    cmd = [sys.executable, receiver_script_path, display_title, selected_cust]
+                    subprocess.run(cmd)
+                    
+                    # Lecture date
+                    if os.path.exists(exchange_file):
+                        with open(exchange_file, "r") as f:
+                            date_str = f.read().strip()
+                        
+                        if date_str:
+                            d_obj = datetime.strptime(date_str, "%d-%m-%y")
+                            print(f"    Date choisie : {date_str}")
+                            
+                            # On construit le nom final de l'event Google
+                            if step_name == "DEADLINE":
+                                final_event_name = f"{selected_cust} - {project_title} - DEADLINE"
+                            else:
+                                final_event_name = f"{selected_cust} - {project_title} - {step_name}"
+                                
+                            events_to_create.append({
+                                "title": final_event_name,
+                                "date": d_obj,
+                                "raw_date_str": date_str # Pour l'affichage résumé
+                            })
+                            send_to_google = True # Au moins une date a été choisie
+                        else:
+                            print(f"    [IGNORE] Aucune date pour '{step_name}'")
+                    else:
+                        print(f"    [IGNORE] Annulé pour '{step_name}'")
+                        
+                except Exception as e:
+                    print(f"Erreur lancement calendrier : {e}")
+
+    # --- CALCUL DE LA DEADLINE DU PROJET ---
+    # La deadline est la date la plus lointaine parmi tous les events choisis
+    if events_to_create:
+        # On trie par date
+        events_to_create.sort(key=lambda x: x['date'])
+        # Le dernier est le plus loin
+        latest_event = events_to_create[-1]
+        deadline_obj = latest_event['date']
+        deadline_str = latest_event['raw_date_str']
     
     # Phase 2: Review
     print("\n--- RÉSUMÉ ---")
     print(f"Client   : {selected_cust}")
     print(f"Projet   : {project_title}")
-    print(f"Deadline : {deadline if deadline else 'Aucune'}")
+    print(f"Deadline : {deadline_str if deadline_str else 'Non définie'}")
+    if events_to_create:
+        print("Planning :")
+        for evt in events_to_create:
+            print(f"  - {evt['date'].strftime('%d-%m-%y')} : {evt['title']}")
     
-    confirm = input("Confirmer ? (y/n/retry): ").lower().strip()
-    if confirm == 'n':
+    confirm = input("\nConfirmer création ? (y/n/retry): ").lower().strip()
+    if confirm == 'n': return
+    elif confirm == 'retry': command_add(); return
+
+    # Drapeaux de succès
+    google_op_success = True
+    template_op_success = True 
+    final_project_path = None
+
+    # --- Phase 3: Google Integration (ENVOI DES EVENTS) ---
+    if send_to_google and events_to_create:
+        print("\n--- GOOGLE CALENDAR INTEGRATION ---")
+        try:
+            # 1. Authentification
+            service = receiver_GoogleApi.get_calendar_service(APP_DIR)
+            if not service:
+                print("[ERREUR] Auth échouée.")
+                google_op_success = False
+            else:
+                # 2. Choix du calendrier (Une seule fois pour tous les events)
+                cals = receiver_GoogleApi.get_writable_calendars(service)
+                cal_id = None
+                
+                if not cals:
+                    print("[ERREUR] Aucun calendrier inscriptible.")
+                    google_op_success = False
+                else:
+                    print("Sélectionnez le calendrier pour ajouter le planning :")
+                    for i, cal in enumerate(cals):
+                        print(f"[{i+1}] {cal['summary']}")
+                    
+                    while True:
+                        try:
+                            c_idx = int(input("Choix (0 pour annuler): "))
+                            if c_idx == 0: google_op_success = False; break
+                            if 0 <= c_idx - 1 < len(cals):
+                                cal_id = cals[c_idx - 1]['id']
+                                break
+                        except ValueError: pass
+
+                # 3. Création en masse
+                if google_op_success and cal_id:
+                    print(f"Création de {len(events_to_create)} événement(s)...")
+                    all_ok = True
+                    for item in events_to_create:
+                        # Appel API
+                        if not receiver_GoogleApi.create_event(service, cal_id, item['title'], item['date']):
+                            all_ok = False
+                    
+                    if not all_ok: print("[ATTENTION] Certains événements n'ont pas été créés.")
+                    else: print("[SUCCÈS] Planning exporté vers Google Agenda.")
+
+        except Exception as e:
+            print(f"[ERREUR CRITIQUE] : {e}")
+            google_op_success = False
+    
+    # Si Google échoue, on annule tout
+    if not google_op_success:
+        print("\n[ANNULATION] Problème Google Calendar. Projet non créé.")
         return
-    elif confirm == 'retry':
-        command_add()
-        return
 
-    # Phase 3: Google Integration (Stub)
-    if send_to_google:
-        print("[GOOGLE API] Fonctionnalité désactivée temporairement (Mock).")
-
-    # Phase 4: Database Update
-    db = load_projects_db()
-    
-    # Note : On utilise ici le titre "court" pour la base de données (plus lisible)
-    # Mais si tu préfères que la clé DB soit aussi "Client - Projet", dis-le moi.
-    # Pour l'instant je garde la logique du TDD initial : [Projet] Customer = X
-    
-    if db.has_section(project_title):
-        print(f"[ATTENTION] Le projet '{project_title}' existe déjà dans la base de données.")
-        choice = input("Écraser l'entrée DB ? (y/n): ")
-        if choice.lower() != 'y':
-            print("Annulation.")
-            return
-    else:
-        db.add_section(project_title)
-    
-    db.set(project_title, "Customer", selected_cust)
-    db.set(project_title, "Deadline", deadline if deadline else "N/A")
-    save_projects_db(db)
-    print("[DB] Base de données mise à jour.")
-
-    # Phase 5: File System Generation
+    # --- Phase 4: File System Generation ---
     projects_root = settings.get("Projects_Directory")
     
     if not projects_root or not os.path.isdir(projects_root):
-        print(f"[ERREUR] Dossier de production introuvable: {projects_root}")
-        return
-    
-    client_dir_path = os.path.join(projects_root, selected_cust)
-    if not os.path.exists(client_dir_path):
-        try:
-            os.makedirs(client_dir_path)
-            print(f"[FS] Dossier client créé : {client_dir_path}")
-        except OSError as e:
-            print(f"[ERREUR] Impossible de créer le dossier client: {e}")
-            return
+        print(f"[ERREUR] Dossier racine introuvable: {projects_root}")
+        template_op_success = False 
+    else:
+        client_dir_path = os.path.join(projects_root, selected_cust)
+        if not os.path.exists(client_dir_path):
+            try: os.makedirs(client_dir_path)
+            except OSError: template_op_success = False
+        
+        if template_op_success:
+            print("[TEMPLATE] Génération des dossiers...")
+            try:
+                if not os.path.exists(TEMPLATE_MAKER_SCRIPT):
+                    print(f"[ERREUR] Script Template introuvable.")
+                    template_op_success = False
+                else:
+                    final_folder_name = project_title
+                    if settings.get("Title_AddCustomer", False):
+                        final_folder_name = f"{selected_cust} - {project_title}"
+                    
+                    final_project_path = os.path.join(client_dir_path, final_folder_name)
+                    
+                    result = subprocess.run([sys.executable, TEMPLATE_MAKER_SCRIPT, client_dir_path, final_folder_name])
+                    
+                    if result.returncode != 0:
+                        template_op_success = False
+                        final_project_path = None
+                    
+            except Exception as e:
+                print(f"[ERREUR] Template: {e}")
+                template_op_success = False
+                final_project_path = None
 
-    # 2. Intégration Template_Maker.py
-    print("\n[TEMPLATE] Lancement du générateur de structure...")
+    # --- Phase 5: Database Update ---
+    if template_op_success:
+        db = load_projects_db()
+        if not db.has_section(project_title): db.add_section(project_title)
+        
+        db.set(project_title, "Customer", selected_cust)
+        db.set(project_title, "Deadline", deadline_str if deadline_str else "N/A")
+        save_projects_db(db)
+        
+        print("\n[SUCCÈS] Projet créé et sauvegardé.")
+        
+        if final_project_path:
+            open_q = input(f"Ouvrir le dossier ? (Y/n): ").lower().strip()
+            if open_q != 'n': open_file_explorer(final_project_path)
+    else:
+        print("\n[ECHEC] La création des dossiers a échoué.")
     
-    try:
-        if not os.path.exists(TEMPLATE_MAKER_SCRIPT):
-            print(f"[ERREUR] Le script {TEMPLATE_MAKER_SCRIPT} est introuvable.")
-        else:
-            # --- NOUVELLE LOGIQUE : FORMATAGE DU TITRE ---
-            final_folder_name = project_title
-            
-            # On vérifie si l'option est activée
-            if settings.get("Title_AddCustomer", False):
-                # Format : "Client - Projet"
-                final_folder_name = f"{selected_cust} - {project_title}"
-                print(f"[INFO] Nom du dossier adapté : '{final_folder_name}'")
-            
-            # Appel du script avec le nom final (court ou long selon l'option)
-            subprocess.run([sys.executable, TEMPLATE_MAKER_SCRIPT, client_dir_path, final_folder_name])
-            
-    except Exception as e:
-        print(f"[ERREUR] Échec lors de l'appel à Template_Maker: {e}")
-
-    print("\nOpération terminée.")
     input("Appuyez sur Entrée pour revenir au menu...")
     command_view()
-
+       
 def command_delete():
     """Workflow de suppression."""
     settings = load_settings()
@@ -444,3 +585,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nInterruption utilisateur.")
         sys.exit(0)
+
+
+
