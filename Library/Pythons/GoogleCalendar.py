@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-receiver_GoogleApi.py
-Version 2.4 : Token Management (_token folder) + Dynamic Preview
+GoogleCalendar.py
+Version 2.5 : Token Management + Dynamic Preview + Project Picker Mode
 """
 
 import os
@@ -10,6 +10,9 @@ import datetime
 import calendar
 import time
 import copy
+import tempfile
+
+sys.dont_write_bytecode = True
 
 # Gestion de l'input clavier sans bloquer (Cross-platform)
 try:
@@ -114,47 +117,29 @@ def input_text_tui(prompt):
 
 def get_services(config_dir):
     creds = None
-    
-    # 1. Définition des chemins basés sur CREDENTIALS_PATH
-    # On récupère le dossier parent de googleCalendar.json (ex: Z:\Scripts\.credentials)
     base_cred_dir = os.path.dirname(os.path.abspath(CREDENTIALS_PATH))
-    
-    # On définit le dossier _token et le nom précis du fichier
     token_dir = os.path.join(base_cred_dir, "_token")
     token_filename = "googleCalendar_token.json"
     token_path = os.path.join(token_dir, token_filename)
 
-    # 2. Création du dossier _token s'il n'existe pas
     if not os.path.exists(token_dir):
-        try:
-            os.makedirs(token_dir, exist_ok=True)
-        except OSError as e:
-            print(f"Erreur création dossier token: {e}")
-            # Fallback : on le met à côté du script si on ne peut pas écrire là-bas
-            token_path = os.path.join(config_dir, 'token.json')
+        try: os.makedirs(token_dir, exist_ok=True)
+        except OSError: token_path = os.path.join(config_dir, 'token.json')
 
-    # 3. Chargement du token
     if os.path.exists(token_path):
         creds = Credentials.from_authorized_user_file(token_path, SCOPES)
 
-    # 4. Refresh ou Nouvelle Auth
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            # On cherche le fichier client secret
             if os.path.exists(CREDENTIALS_PATH):
                 flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
-            elif os.path.exists('credentials.json'): # Fallback local
+            elif os.path.exists('credentials.json'):
                 flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-            else:
-                return None, None
-            
+            else: return None, None
             creds = flow.run_local_server(port=0)
-        
-        # 5. Sauvegarde dans le nouveau dossier
-        with open(token_path, 'w') as token:
-            token.write(creds.to_json())
+        with open(token_path, 'w') as token: token.write(creds.to_json())
     
     cal_service = build('calendar', 'v3', credentials=creds)
     task_service = build('tasks', 'v1', credentials=creds)
@@ -249,7 +234,7 @@ def get_events_with_colors(service, calendar_map, start_date, end_date):
     return all_events
 
 
-# --- UTILITAIRES UI (Prompts) ---
+# --- UTILITAIRES UI ---
 
 def prompt_scope(action_name):
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -376,8 +361,6 @@ class AdvancedFormTUI:
         self.existing_event = existing_event 
         self.calendars = get_writable_calendars(cal_service)
         self.tasklists = get_task_lists(task_service)
-        
-        # Default Data
         self.data = {
             "type": "EVENT", "title": "Nouvel événement", "description": "",
             "all_day": True, "start_time": "09:00", "end_time": "10:00",
@@ -385,13 +368,10 @@ class AdvancedFormTUI:
             "visibility": "default", "busy": True, "color_id": "DEFAULT",
             "reminders_use_default": True, "reminders_min": 10, "tasklist_idx": 0
         }
-
-        # Populate if existing
         if existing_event:
             self.data["title"] = existing_event.get('summary', 'Sans titre')
             self.data["description"] = existing_event.get('description', '')
             self.data["location"] = existing_event.get('location', '')
-            # Date logic
             start = existing_event.get('start')
             if 'date' in start:
                 self.data['all_day'] = True
@@ -404,11 +384,7 @@ class AdvancedFormTUI:
                 if 'end' in existing_event:
                     end_dt = datetime.datetime.fromisoformat(existing_event['end']['dateTime'].replace('Z', '+00:00'))
                     self.data['end_time'] = end_dt.strftime('%H:%M')
-            
-            # Color logic
             if 'colorId' in existing_event: self.data['color_id'] = existing_event['colorId']
-            
-            # Identify Calendar Index
             cid = existing_event.get('_cal_id')
             for i, c in enumerate(self.calendars):
                 if c['id'] == cid: self.data['cal_idx'] = i; break
@@ -429,11 +405,9 @@ class AdvancedFormTUI:
             if not self.data["reminders_use_default"]: fields.append(("Minutes", "reminders_min"))
         else:
             fields.extend([("Desc", "description"), ("Liste", "tasklist_idx")])
-        
         fields.append(("---", "sep"))
         fields.append(("[ SAUVEGARDER ]", "save"))
-        if self.existing_event:
-            fields.append(("[ SUPPRIMER ]", "delete"))
+        if self.existing_event: fields.append(("[ SUPPRIMER ]", "delete"))
         fields.append(("[ ANNULER ]", "cancel"))
         return fields
 
@@ -443,7 +417,6 @@ class AdvancedFormTUI:
         print(f"Date: {self.date.strftime('%d/%m/%Y')}"); print("─" * 50)
         rows = self.get_fields()
         if self.selected_row >= len(rows): self.selected_row = len(rows) - 1
-
         for idx, (label, key) in enumerate(rows):
             if key == "sep": print("─" * 50); continue
             mk = f"{Colors.CYAN}➜{Colors.RESET}" if idx == self.selected_row else " "
@@ -452,36 +425,27 @@ class AdvancedFormTUI:
             if key == "all_day": val = "Journée entière" if self.data['all_day'] else "Heures précises"
             if key == "cal_idx" and self.calendars: val = self.calendars[self.data['cal_idx']]['summary']
             if key == "reminders": val = "Défaut" if self.data['reminders_use_default'] else "Custom"
-            
             if key in ["save", "delete", "cancel"]: print(f"   {mk} {st} {label} {Colors.RESET}")
             else: print(f"   {mk} {label:<12} : {st}{val}{Colors.RESET}")
-        
         print("\nSPACE: Changer | ENTER: Valider | ECHAP: Retour")
 
     def save_action(self):
         print(f"\n{Colors.YELLOW}Traitement...{Colors.RESET}")
         scope = 'THIS'
-        
-        # Detection recurrences pour Update
         if self.existing_event and self.data['type'] == 'EVENT':
             is_recurring = ('recurrence' in self.existing_event) or ('recurringEventId' in self.existing_event)
             if is_recurring:
                 scope = prompt_scope("MODIFICATION")
-                if not scope: return # Cancel
-        
+                if not scope: return 
         cid = self.calendars[self.data['cal_idx']]['id']
-        
         if self.existing_event:
-            # UPDATE
             eid = self.existing_event['id']
             target_id = eid
             if scope == 'ALL' and 'recurringEventId' in self.existing_event:
                 target_id = self.existing_event['recurringEventId']
             ok = update_google_event(self.cal_service, cid, target_id, {**self.data, 'date': self.date}, scope)
         else:
-            # CREATE
             ok = create_google_event(self.cal_service, cid, {**self.data, 'date': self.date})
-        
         if ok: print(f"{Colors.GREEN}OK{Colors.RESET}"); time.sleep(0.5); return True
         else: input("Erreur."); return False
 
@@ -489,7 +453,6 @@ class AdvancedFormTUI:
         if not self.existing_event: return
         scope = 'THIS'
         is_recurring = ('recurrence' in self.existing_event) or ('recurringEventId' in self.existing_event)
-        
         if is_recurring:
             scope = prompt_scope("SUPPRESSION")
             if not scope: return
@@ -498,15 +461,12 @@ class AdvancedFormTUI:
             if k not in ['\r','\n']: return
         else:
             if not prompt_confirm("Supprimer cet événement ?"): return
-
         print(f"\n{Colors.YELLOW}Suppression...{Colors.RESET}")
         cid = self.calendars[self.data['cal_idx']]['id']
         eid = self.existing_event['id']
-        
         target_id = eid
         if scope == 'ALL' and 'recurringEventId' in self.existing_event:
             target_id = self.existing_event['recurringEventId']
-            
         ok = delete_google_event(self.cal_service, cid, target_id, scope)
         if ok: return True
         else: input("Erreur."); return False
@@ -518,7 +478,7 @@ class AdvancedFormTUI:
             if k == 'UP': self.selected_row -= 1
             elif k == 'DOWN': self.selected_row += 1
             elif k == '\x1b': return False
-            elif k == ' ': # Edit values
+            elif k == ' ': 
                 rows = self.get_fields()
                 key = rows[self.selected_row][1]
                 if key == "all_day": self.data["all_day"] = not self.data["all_day"]
@@ -552,24 +512,21 @@ class AdvancedFormTUI:
 # --- CALENDRIER PRINCIPAL ---
 
 class CalendarTUI:
-    def __init__(self, cal_service, task_service, calendar_ids):
+    def __init__(self, cal_service, task_service, calendar_ids, picker_mode=False, picker_title=""):
         self.cal_service = cal_service
         self.task_service = task_service
         self.target_cal_ids = calendar_ids 
+        
+        # CONFIGURATION MODE "PROJECT PICKER"
+        self.picker_mode = picker_mode
+        self.picker_title = picker_title
+        
         now = datetime.datetime.now()
         self.year = now.year; self.month = now.month; self.day = now.day
         
         # États de navigation
-        # 0 = GRID (Focus grille)
-        # 1 = SIDE DAY VIEW (Liste des événements du jour sélectionné, focus droite)
-        # 2 = SIDE MONTH VIEW (Liste de TOUS les événements du mois, focus droite)
         self.active_panel = 0 
-        
-        # Nouvel état : Aperçu rapide
-        # False = On affiche par défaut tout le mois (comportement 'idle')
-        # True = On affiche le jour courant (comportement 'navigation')
         self.showing_day_preview = False
-
         self.side_cursor = 0
         self.scroll_offset = 0 
         self.cursor_in_header = False 
@@ -610,27 +567,17 @@ class CalendarTUI:
         self.last_fetch_month = (self.year, self.month)
 
     def get_side_items(self):
-        """Détermine quoi afficher à droite selon le mode"""
-        
-        # Mode Grille (0) : On regarde le flag de preview
         if self.active_panel == 0:
             if self.showing_day_preview:
-                # On est en mode navigation -> Preview du jour
                 d_key = self.selected_date.strftime("%Y-%m-%d")
                 return self.events_cache.get(d_key, [])
             else:
-                # On est en mode idle -> Vue mois complet
                 return self.all_month_events_flat
-
-        # Mode Interactif Jour (1)
         elif self.active_panel == 1:
             d_key = self.selected_date.strftime("%Y-%m-%d")
             return self.events_cache.get(d_key, [])
-        
-        # Mode Interactif Mois (2)
         elif self.active_panel == 2:
             return self.all_month_events_flat
-        
         return []
 
     def draw(self):
@@ -642,26 +589,30 @@ class CalendarTUI:
             self.selected_date = datetime.date(self.year, self.month, self.day)
         except: pass
 
-        # Setup Grid
+        # Header Gauche
         cal_obj = calendar.Calendar(firstweekday=0)
         month_days = cal_obj.monthdayscalendar(self.year, self.month)
         m_name = calendar.month_name[self.month].upper()
         
-        # Header Gauche
         head_grid = f"{m_name} {self.year}".center(22)
         if self.active_panel == 0 and self.cursor_in_header: head_grid = f"{Colors.INVERT}{head_grid}{Colors.RESET}"
         else: head_grid = f"{Colors.HEADER}{head_grid}{Colors.RESET}"
         
         # Header Droite Logic
-        if self.active_panel == 0:
-            if self.showing_day_preview:
-                head_side = f"{Colors.BOLD}Événements: {self.selected_date.strftime('%d/%m')}{Colors.RESET}"
-            else:
-                head_side = f"{Colors.BOLD}Événements du Mois{Colors.RESET}"
-        elif self.active_panel == 1:
-            head_side = f"{Colors.INVERT} {self.selected_date.strftime('%d/%m')} {Colors.RESET}"
-        elif self.active_panel == 2:
-            head_side = f"{Colors.INVERT} Événements du Mois {Colors.RESET}"
+        if self.picker_mode:
+            # Mode Picker : On affiche le titre demandé (Ex: "Projet (Review)")
+            head_side = f"{Colors.YELLOW}{self.picker_title}{Colors.RESET}"
+        else:
+            # Mode Normal
+            if self.active_panel == 0:
+                if self.showing_day_preview:
+                    head_side = f"{Colors.BOLD}Événements: {self.selected_date.strftime('%d/%m')}{Colors.RESET}"
+                else:
+                    head_side = f"{Colors.BOLD}Événements du Mois{Colors.RESET}"
+            elif self.active_panel == 1:
+                head_side = f"{Colors.INVERT} {self.selected_date.strftime('%d/%m')} {Colors.RESET}"
+            elif self.active_panel == 2:
+                head_side = f"{Colors.INVERT} Événements du Mois {Colors.RESET}"
 
         print(f"{head_grid}   |   {head_side}")
         print(f"|L |M |M |J |V |S |D |   |")
@@ -685,8 +636,8 @@ class CalendarTUI:
                 style = f"{Colors.INVERT}{txt}{Colors.RESET}" if is_selected else f"{col}{txt}{Colors.RESET}"
                 raw_lines.append(style)
         
-        # Bouton Ajouter (seulement si panel actif 1 ou 2)
-        if self.active_panel != 0:
+        # Bouton Ajouter (seulement si mode interactif et PAS en mode picker)
+        if self.active_panel != 0 and not self.picker_mode:
             limit_idx = len(side_evts)
             add_btn_txt = "[ + Ajouter ]"
             if self.active_panel in [1, 2] and self.side_cursor == limit_idx:
@@ -694,13 +645,10 @@ class CalendarTUI:
             else:
                 raw_lines.append(f"{Colors.YELLOW}{add_btn_txt}{Colors.RESET}")
 
-        # --- Viewport Logique ---
+        # --- Viewport ---
         fixed_height = 9 
-        
-        # Reset scroll si on repasse en mode 0
         if self.active_panel == 0: self.scroll_offset = 0
 
-        # Calcul Scroll (seulement si actif)
         if self.active_panel != 0:
             if self.side_cursor >= self.scroll_offset + fixed_height:
                 self.scroll_offset = self.side_cursor - fixed_height + 1
@@ -713,12 +661,11 @@ class CalendarTUI:
 
         visible_side = raw_lines[self.scroll_offset : self.scroll_offset + fixed_height]
 
-        # --- Rendu ---
         can_scroll_up = self.scroll_offset > 0
         can_scroll_down = (self.scroll_offset + fixed_height) < total_items
 
         for i in range(fixed_height):
-            # Grid Left
+            # Grid
             row_str = ""
             if i < len(month_days):
                 for d_num in month_days[i]:
@@ -727,9 +674,14 @@ class CalendarTUI:
                         ds = f"{d_num:02d}"
                         dk = f"{self.year}-{self.month:02d}-{d_num:02d}"
                         has_evt = (dk in self.events_cache)
-                        if self.active_panel == 0 and not self.cursor_in_header and d_num == self.day:
+                        
+                        is_today_cursor = (d_num == self.day)
+                        
+                        if self.active_panel == 0 and not self.cursor_in_header and is_today_cursor:
+                            # Curseur sur la grille
                             cell = f"{Colors.BLUE_BG}{Colors.WHITE_TXT}{ds}{Colors.RESET}"
-                        elif self.active_panel == 1 and d_num == self.day: 
+                        elif self.active_panel == 1 and is_today_cursor: 
+                            # Focus ailleurs, mais on montre la sélection grisée
                             cell = f"{Colors.INVERT}{ds}{Colors.RESET}"
                         elif has_evt:
                             c = self.events_cache[dk][0].get('_ui_color', Colors.GREEN)
@@ -739,7 +691,7 @@ class CalendarTUI:
                 row_str += "|"
             else: row_str = " " * 22 
             
-            # Side Right
+            # Side
             if i < len(visible_side):
                 content = visible_side[i]
                 indicator = " "
@@ -751,9 +703,12 @@ class CalendarTUI:
                 print(f"{row_str}   |")
 
         print("-" * 60)
-        if self.active_panel == 0: print(f"NAV: Flèches | {Colors.BOLD}'e': Events Mois{Colors.RESET} | ENTER: Events Jour")
-        elif self.active_panel == 1: print("JOUR: HAUT/BAS | ENTER: Éditer | ECHAP: Retour")
-        elif self.active_panel == 2: print("MOIS: HAUT/BAS | ENTER: Éditer | ECHAP: Retour")
+        if self.picker_mode:
+            print(f"NAV: Flèches | {Colors.INVERT}ENTER: Valider la date{Colors.RESET} | ECHAP: Annuler")
+        else:
+            if self.active_panel == 0: print(f"NAV: Flèches | {Colors.BOLD}'e': Events Mois{Colors.RESET} | ENTER: Events Jour")
+            elif self.active_panel == 1: print("JOUR: HAUT/BAS | ENTER: Éditer | ECHAP: Retour")
+            elif self.active_panel == 2: print("MOIS: HAUT/BAS | ENTER: Éditer | ECHAP: Retour")
 
     def run_date_picker_mode(self):
         temp_active = self.active_panel
@@ -776,6 +731,21 @@ class CalendarTUI:
             elif k == 'LEFT': self.day -= 1
             elif k == 'RIGHT': self.day += 1
 
+    def save_and_exit_picker(self):
+        """Ecrit la date dans un fichier temporaire et quitte (Pour Project.py)"""
+        # On utilise le dossier temp du système pour éviter de polluer le dossier du script
+        temp_dir = tempfile.gettempdir()
+        output_file = os.path.join(temp_dir, "ProjectManager_date.tmp")
+        
+        date_str = self.selected_date.strftime("%d-%m-%y")
+        try:
+            with open(output_file, "w") as f:
+                f.write(date_str)
+        except Exception as e:
+            print(f"Erreur écriture date: {e}")
+            time.sleep(2)
+        return True # Exit signal
+
     def run(self):
         while True:
             self.draw()
@@ -783,39 +753,37 @@ class CalendarTUI:
 
             # --- GLOBAL EXIT ---
             if k == '\x1b':
-                if self.active_panel != 0: 
-                    self.active_panel = 0 # Retour grille
+                if self.active_panel != 0 and not self.picker_mode: 
+                    self.active_panel = 0 
                     self.scroll_offset = 0
-                    self.showing_day_preview = False # Reset au défaut
+                    self.showing_day_preview = False
                 else: 
-                    # Si on est sur la grille
-                    if self.showing_day_preview:
-                        self.showing_day_preview = False # On quitte le mode "preview jour" pour revenir à "mois"
+                    if self.showing_day_preview and not self.picker_mode:
+                        self.showing_day_preview = False 
                     else:
-                        return None # On quitte l'app
+                        return None # Quit
 
             # --- PANEL 0 (GRID) ---
             elif self.active_panel == 0:
-                if k == 'e':
+                if k == 'e' and not self.picker_mode: # Desactivé en mode picker
                     self.active_panel = 2
                     self.side_cursor = 0
                     self.scroll_offset = 0
                 
-                # Navigation: Force le mode Preview Jour
                 elif k == 'UP':
-                    self.showing_day_preview = True
+                    if not self.picker_mode: self.showing_day_preview = True
                     if not self.cursor_in_header:
                         self.day -= 7
                         if self.day < 1: self.cursor_in_header = True; self.day += 7 
                 elif k == 'DOWN':
-                    self.showing_day_preview = True
+                    if not self.picker_mode: self.showing_day_preview = True
                     if self.cursor_in_header: self.cursor_in_header = False
                     else:
                         self.day += 7
                         _, max_d = calendar.monthrange(self.year, self.month)
                         if self.day > max_d: self.day = max_d
                 elif k == 'LEFT':
-                    self.showing_day_preview = True
+                    if not self.picker_mode: self.showing_day_preview = True
                     if self.cursor_in_header:
                         self.month -= 1
                         if self.month < 1: self.month = 12; self.year -= 1
@@ -829,7 +797,7 @@ class CalendarTUI:
                             self.day = max_prev
                             self.last_fetch_month = None
                 elif k == 'RIGHT':
-                    self.showing_day_preview = True
+                    if not self.picker_mode: self.showing_day_preview = True
                     if self.cursor_in_header:
                         self.month += 1
                         if self.month > 12: self.month = 1; self.year += 1
@@ -844,12 +812,16 @@ class CalendarTUI:
                             self.last_fetch_month = None
                 
                 elif k in ['\r', '\n']:
-                    # Switch to Day View Interactive
-                    self.active_panel = 1
-                    self.side_cursor = 0 
-                    self.scroll_offset = 0 
+                    if self.picker_mode:
+                        # MODE PICKER : VALIDATION DATE
+                        if self.save_and_exit_picker(): return
+                    else:
+                        # MODE NORMAL : SWITCH VERS JOUR
+                        self.active_panel = 1
+                        self.side_cursor = 0 
+                        self.scroll_offset = 0 
 
-            # --- PANEL 1 (DAY VIEW) & 2 (MONTH VIEW) ---
+            # --- PANEL 1 & 2 (NON ACCESSIBLES EN PICKER MODE) ---
             elif self.active_panel in [1, 2]:
                 evts = self.get_side_items()
                 limit = len(evts) 
@@ -860,27 +832,74 @@ class CalendarTUI:
                     self.side_cursor = min(limit, self.side_cursor + 1)
                 elif k in ['\r', '\n']:
                     if self.side_cursor == limit:
-                        # ADD NEW
                         form = AdvancedFormTUI(self.cal_service, self.task_service, self.selected_date, self, None)
                         if form.run(): self.last_fetch_month = None
                     else:
-                        # EDIT
                         target_evt = evts[self.side_cursor]
                         form = AdvancedFormTUI(self.cal_service, self.task_service, self.selected_date, self, target_evt)
                         if form.run(): self.last_fetch_month = None
 
 
+# --- EXPORT FUNCTIONS FOR PROJECT.PY ---
+
+def get_calendar_service(config_dir):
+    """Helper for external scripts to get service"""
+    cal, _ = get_services(config_dir)
+    return cal
+
+def create_event(service, calendar_id, title, date_obj):
+    """Helper for external scripts to create event"""
+    body = {
+        'summary': title,
+        'start': {'date': date_obj.strftime('%Y-%m-%d')},
+        'end': {'date': (date_obj + datetime.timedelta(days=1)).strftime('%Y-%m-%d')},
+        'transparency': 'transparent'
+    }
+    try:
+        service.events().insert(calendarId=calendar_id, body=body).execute()
+        return True
+    except: return False
+
+
 if __name__ == "__main__":
     current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # --- DETECTION MODE PICKER VIA ARGUMENTS ---
+    # Project.py sends: script.py --title "Display Title" "Customer Name"
+    is_picker = False
+    pick_title = ""
+    
+    # Argument parsing logic
+    args = sys.argv[1:]
+    if "--title" in args:
+        try:
+            # Find the index of --title and get the next argument
+            t_index = args.index("--title")
+            if t_index + 1 < len(args):
+                is_picker = True
+                pick_title = args[t_index + 1]
+        except ValueError:
+            pass
+    elif len(args) > 0:
+        # Fallback: If arguments exist but no --title flag, assume index 0 is title (Legacy behavior)
+        is_picker = True
+        pick_title = args[0]
+
     try:
         cal_service, task_service = get_services(current_dir)
-        if not cal_service: print("Erreur Auth."); time.sleep(2); sys.exit(1)
+        if not cal_service: 
+            print("Auth Error.")
+            time.sleep(2)
+            sys.exit(1)
         
+        # Calendar Retrieval
         cals_result = cal_service.calendarList().list().execute()
         target_ids = [c['id'] for c in cals_result.get('items', []) if c.get('selected', True)]
         
-        app = CalendarTUI(cal_service, task_service, target_ids)
+        # Launch App with Configuration
+        app = CalendarTUI(cal_service, task_service, target_ids, picker_mode=is_picker, picker_title=pick_title)
         app.run()
         
     except Exception as e:
-        print(f"Erreur critique: {e}"); time.sleep(3)
+        print(f"Critical Error: {e}")
+        time.sleep(3)

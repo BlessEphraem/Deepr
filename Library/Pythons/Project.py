@@ -4,587 +4,845 @@ import json
 import shutil
 import subprocess
 import configparser
-import platform # <-- 1. AJOUTER CET IMPORT
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+import platform
+import tempfile
+import time
+from datetime import datetime
+sys.dont_write_bytecode = True
 
+# Conditional import of GoogleCalendar for the API
 try:
-    import receiver_GoogleApi
+    import GoogleCalendar
 except ImportError:
-    receiver_GoogleApi = None # Gestion gracieuse si le module manque
+    GoogleCalendar = None
 
-# --- GESTION DES CHEMINS SYSTÈME (APPDATA) ---
+# --- TUI ENGINE (Colors & Keyboard Management) ---
+
+class Colors:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    INVERT = "\033[7m"      
+    BLUE_BG = "\033[44m"
+    RED_BG = "\033[41m"
+    WHITE_TXT = "\033[97m"
+    HEADER = "\033[95m"     
+    GREEN = "\033[92m"      
+    GREY = "\033[90m"
+    CYAN = "\033[96m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    
+    @staticmethod
+    def hex_to_ansi(hex_color):
+        """Converts HEX (#RRGGBB) to ANSI foreground code"""
+        if not hex_color or not hex_color.startswith('#'): return Colors.WHITE_TXT
+        hex_color = hex_color.lstrip('#')
+        try:
+            r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+            return f"\033[38;2;{r};{g};{b}m"
+        except: return Colors.WHITE_TXT
+
+class _Getch:
+    """Cross-platform non-blocking keyboard input manager"""
+    def __init__(self):
+        try: self.impl = _GetchWindows()
+        except ImportError: self.impl = _GetchUnix()
+    def __call__(self): return self.impl()
+
+class _GetchUnix:
+    def __init__(self): import tty, termios
+    def __call__(self):
+        import tty, termios
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(sys.stdin.fileno())
+            ch = sys.stdin.read(1)
+            if ch == '\x1b':
+                seq = sys.stdin.read(2)
+                if seq == '[A': return 'UP'
+                if seq == '[B': return 'DOWN'
+            return ch
+        finally: termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+class _GetchWindows:
+    def __init__(self): import msvcrt
+    def __call__(self):
+        import msvcrt
+        ch = msvcrt.getch()
+        if ch == b'\xe0':
+            ch = msvcrt.getch()
+            if ch == b'H': return 'UP'
+            if ch == b'P': return 'DOWN'
+        try: return ch.decode('utf-8')
+        except: return ch
+
+getch = _Getch()
+
+def input_text_tui(prompt, default_val=""):
+    """Clean text input"""
+    # Print prompt
+    p_str = f"{Colors.CYAN}{prompt}{Colors.RESET} "
+    if default_val:
+        p_str += f"[{default_val}] "
+        
+    sys.stdout.write(f"\r{p_str}")
+    sys.stdout.flush()
+    try:
+        if os.name != 'nt':
+            import tty, termios
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            termios.tcsetattr(fd, termios.TCSADRAIN, termios.tcgetattr(sys.stdout))
+        
+        user_input = input()
+        
+        if os.name != 'nt': termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        
+        result = user_input.strip()
+        if not result and default_val: return default_val
+        return result
+    except: return default_val
+
+# --- CONFIGURATION & PATHS ---
 
 def get_app_data_dir() -> str:
-    """
-    Récupère le chemin du dossier de configuration utilisateur.
-    Force l'utilisation de [USER]/.config/ProjectsManager sur tous les OS.
-    """
     APP_NAME = "ProjectsManager" 
-    
     try:
-        # On récupère le dossier utilisateur (ex: C:\Users\Toi ou /home/toi)
         user_home = os.path.expanduser('~')
-        
-        # On construit le chemin : [USER]/.config/TemplateMaker
         config_dir = os.path.join(user_home, '.config', APP_NAME)
-        
-        # Création du dossier s'il n'existe pas
         os.makedirs(config_dir, exist_ok=True)
         return config_dir
-
-    except (OSError, TypeError) as e:
-        print(f"[WARNING] Impossible d'accéder au dossier système: {e}")
-        return os.getcwd()
-
-# --- CONSTANTES & FICHIERS ---
+    except: return os.getcwd()
 
 APP_DIR = get_app_data_dir()
 SETTINGS_FILE = os.path.join(APP_DIR, "settings.json")
 PROJECTS_DB = os.path.join(APP_DIR, "projects.ini")
-
-# --- MODIFICATION ---
-# On récupère le chemin absolu du dossier où se trouve Project.py
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-# On construit le chemin complet vers Template.py
 TEMPLATE_MAKER_SCRIPT = os.path.join(SCRIPT_DIR, "Template.py")
-# --- FIN MODIFICATION ---
 
-# --- GESTION DE LA CONFIGURATION (settings.json) ---
+# --- BUSINESS LOGIC (Settings & DB) ---
+
+def save_settings_file(data):
+    try:
+        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Error saving settings: {e}")
 
 def load_settings() -> dict:
-    """Charge les paramètres ou lance l'initialisation si absent/incomplet."""
-    if not os.path.exists(SETTINGS_FILE):
-        return init_settings()
-    
+    if not os.path.exists(SETTINGS_FILE): return init_settings()
     try:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
+            if "Projects_Directory" not in data: return init_settings()
             
-            # Vérifications de compatibilité (Mise à jour des clés manquantes)
-            needs_save = False
+            current_root = data.get("Projects_Directory", "")
+            if not os.path.exists(current_root):
+                return fix_broken_root_path(data)
             
-            if "Projects_Directory" not in data:
-                print("[CONFIG] Le chemin des projets est manquant.")
-                data["Projects_Directory"] = prompt_for_projects_dir()
-                needs_save = True
-                
-            if "Title_AddCustomer" not in data:
-                print("[CONFIG] Option détectée : Préfixe Client.")
-                data["Title_AddCustomer"] = prompt_for_title_option()
-                needs_save = True
+            if "Customer_Colors" not in data:
+                data["Customer_Colors"] = {}
+                save_settings_file(data)
 
-            if needs_save:
-                save_settings(data)
-                
             return data
-    except json.JSONDecodeError:
-        print(f"[ERREUR] {SETTINGS_FILE} est corrompu. Réinitialisation.")
-        return init_settings()
+    except: return init_settings()
 
-def prompt_for_projects_dir() -> str:
-    """Demande le dossier racine où seront créés les projets."""
+def fix_broken_root_path(settings: dict) -> dict:
+    bad_path = settings.get("Projects_Directory", "Unknown")
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(f"{Colors.RED_BG}{Colors.WHITE_TXT} CRITICAL CONFIG ERROR {Colors.RESET}")
+    print(f"\nMissing Path: {Colors.RED}{bad_path}{Colors.RESET}")
     while True:
-        path = input("Chemin du dossier de Production (Output des projets): ").strip()
-        if os.path.isdir(path):
-            return path
-        print(f"[ERREUR] Le dossier '{path}' n'existe pas ou est invalide.")
+        new_path = input(f"{Colors.YELLOW}New Directory Path: {Colors.RESET}").strip()
+        if new_path.startswith('"') and new_path.endswith('"'): new_path = new_path[1:-1]
+        
+        if not os.path.exists(new_path):
+            print(f"{Colors.RED}Directory does not exist.{Colors.RESET}")
+            print("Create it? (y/n)")
+            if input().lower() == 'y':
+                try: os.makedirs(new_path)
+                except Exception as e: print(f"Failed: {e}"); continue
+            else: continue
 
-def prompt_for_title_option() -> bool:
-    """Demande si on doit ajouter le nom du client au titre du dossier."""
-    return input("Ajouter le nom du client dans le nom du dossier final ? (y/n): ").lower().strip() == 'y'
+        if os.path.exists(new_path) and os.path.isdir(new_path):
+            settings["Projects_Directory"] = new_path
+            save_settings_file(settings)
+            return settings
 
 def init_settings() -> dict:
-    """Workflow d'initialisation complet."""
-    print(f"\n--- Initialisation de Project Manager ---")
-    print(f"(Les fichiers de config seront stockés dans : {APP_DIR})")
-    
-    # 1. Dossier de production
-    proj_dir = prompt_for_projects_dir()
-
-    customers = []
-    # 2. Clients
-    print("\n--- Configuration des Clients ---")
-    first_cust = input("Entrez le nom du premier Client (Defaut: 'Customer 1'): ").strip()
-    if not first_cust:
-        first_cust = "Customer 1"
-    customers.append(first_cust)
-    
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(f"{Colors.HEADER}--- INITIAL CONFIGURATION ---{Colors.RESET}")
+    proj_dir = ""
     while True:
-        more = input("Ajouter un autre client ? (y/n): ").lower().strip()
-        if more == 'y':
-            c = input("Nom du client: ").strip()
-            if c: customers.append(c)
-        else:
-            break
-            
-    # 3. Steps
-    steps = []
-    print("\n--- Configuration des Étapes ---")
-    while True:
-        step = input("Ajouter une étape (laisser vide pour finir): ").strip()
-        if not step:
-            break
-        steps.append(step)
+        proj_dir = input("Production Directory (Full path): ").strip()
+        if proj_dir.startswith('"') and proj_dir.endswith('"'): proj_dir = proj_dir[1:-1]
         
-    # 4. Google API
-    print("\n--- Configuration Google ---")
-    use_google = input("Activer l'intégration Google API ? (y/n): ").lower().strip() == 'y'
+        if not os.path.exists(proj_dir):
+            print("Directory does not exist. Create it? (y/n)")
+            if input().lower() == 'y':
+                try: os.makedirs(proj_dir)
+                except: print("Failed."); continue
+            else: continue
+
+        if os.path.exists(proj_dir) and os.path.isdir(proj_dir): break
     
-    # 5. Options de Nommage (NOUVEAU)
-    add_cust_title = prompt_for_title_option()
+    steps = []
+    print(f"\n{Colors.YELLOW}Adding Steps (Optional){Colors.RESET}")
+    while True:
+        s = input("Step Name (e.g., Review) (Enter to finish): ").strip()
+        if not s: break
+        steps.append(s)
+        
+    use_google = input("\nUse Google Calendar? (y/n): ").lower() == 'y'
+    add_cust_title = input("Add customer name to project folder? (y/n): ").lower() == 'y'
     
     settings = {
         "Projects_Directory": proj_dir,
-        "Title_AddCustomer": add_cust_title, # Nouvelle clé
+        "Title_AddCustomer": add_cust_title,
         "GoogleAPI": use_google,
         "User_Wants_Google": use_google,
-        "Customers": customers,
+        "Customers": [], 
+        "Customer_Colors": {}, 
         "Steps": steps
     }
-    
-    save_settings(settings)
+    save_settings_file(settings)
+    settings = sync_customers(settings)
+    # Initial Project Sync
+    sync_projects_db(settings)
     return settings
 
-def save_settings(data: dict):
-    with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=4)
-    print(f"[INFO] Configuration sauvegardée : {SETTINGS_FILE}")
+def sync_customers(settings: dict) -> dict:
+    """Sync filesystem folders with settings."""
+    root = settings.get("Projects_Directory")
+    if not root or not os.path.exists(root): return settings
 
-# --- GESTION DE LA BASE DE DONNÉES (projects.ini) ---
+    valid_fs_customers = set()
+    try:
+        for entry in os.scandir(root):
+            if entry.is_dir() and not entry.name.startswith(('.', '_', '-')):
+                valid_fs_customers.add(entry.name)
+    except: return settings
+
+    current_json_customers = set(settings.get("Customers", []))
+    has_changes = False
+
+    removed = current_json_customers - valid_fs_customers
+    if removed:
+        settings["Customers"] = [c for c in settings["Customers"] if c not in removed]
+        has_changes = True
+
+    new_cust = valid_fs_customers - current_json_customers
+    if new_cust:
+        # Silent add during startup to avoid blocking, or simple prompt if empty
+        # For this version, we AUTO ADD to ensure synchronization without hassle
+        for nc in new_cust:
+             settings["Customers"].append(nc)
+             if "Customer_Colors" not in settings: settings["Customer_Colors"] = {}
+             settings["Customer_Colors"][nc] = "#FFFFFF"
+             has_changes = True
+
+    if has_changes:
+        settings["Customers"].sort()
+        save_settings_file(settings)
+    return settings
+
+def sync_projects_db(settings: dict) -> int:
+    """
+    SMART SYNC:
+    1. Scan FS for existing projects.
+    2. Add missing projects to DB.
+    3. Remove deleted projects from DB.
+    4. Keep deadlines for existing ones.
+    """
+    root = settings.get("Projects_Directory")
+    if not root or not os.path.exists(root): return 0
+    
+    db = load_projects_db()
+    
+    # 1. Map Filesystem Projects
+    fs_projects = set()
+    project_to_customer_map = {}
+    
+    customers = settings.get("Customers", [])
+    
+    for cust in customers:
+        c_path = os.path.join(root, cust)
+        if os.path.exists(c_path):
+            try:
+                for entry in os.scandir(c_path):
+                    # It's a project if it's a folder and not hidden
+                    if entry.is_dir() and not entry.name.startswith(('.', '_')):
+                        proj_name = entry.name
+                        fs_projects.add(proj_name)
+                        project_to_customer_map[proj_name] = cust
+            except: pass
+            
+    # 2. Identify changes
+    db_projects = set(db.sections())
+    
+    # Remove Zombies (In DB but not in FS)
+    to_remove = db_projects - fs_projects
+    for p in to_remove:
+        db.remove_section(p)
+        
+    # Add Ghosts (In FS but not in DB)
+    to_add = fs_projects - db_projects
+    for p in to_add:
+        db.add_section(p)
+        db.set(p, "Customer", project_to_customer_map[p])
+        db.set(p, "Deadline", "--")
+    
+    if to_remove or to_add:
+        save_projects_db(db)
+        
+    return len(fs_projects)
 
 def load_projects_db() -> configparser.ConfigParser:
     config = configparser.ConfigParser()
     if not os.path.exists(PROJECTS_DB):
-        with open(PROJECTS_DB, 'w', encoding='utf-8') as f:
-            f.write("") 
+        with open(PROJECTS_DB, 'w', encoding='utf-8') as f: f.write("") 
     config.read(PROJECTS_DB, encoding='utf-8')
     return config
 
-def save_projects_db(config: configparser.ConfigParser):
-    with open(PROJECTS_DB, 'w', encoding='utf-8') as f:
-        config.write(f)
+def save_projects_db(config):
+    with open(PROJECTS_DB, 'w', encoding='utf-8') as f: config.write(f)
 
-# --- 2. AJOUTER CETTE NOUVELLE FONCTION ---
 def open_file_explorer(path: str):
-    """
-    Ouvre le gestionnaire de fichiers à l'emplacement spécifié,
-    de manière multi-plateforme.
-    """
-    if not os.path.isdir(path):
-        print(f"[ERREUR] Impossible d'ouvrir le dossier, chemin introuvable : {path}")
-        return
-        
+    if not os.path.isdir(path): return
+    real_path = os.path.realpath(path)
     try:
-        # os.path.realpath() résout les liens symboliques et normalise le chemin
-        real_path = os.path.realpath(path)
+        if sys.platform == "win32": os.startfile(real_path)
+        elif sys.platform == "darwin": subprocess.run(["open", real_path])
+        else: subprocess.run(["xdg-open", real_path])
+    except: pass
+
+# --- SETTINGS MENU ---
+
+def command_settings_menu():
+    while True:
+        settings = load_settings()
+        current_dir = settings.get("Projects_Directory", "Not Set")
         
-        if sys.platform == "win32":
-            os.startfile(real_path)
-        elif sys.platform == "darwin": # macOS
-            subprocess.run(["open", real_path])
-        else: # Linux
-            subprocess.run(["xdg-open", real_path])
-        print(f"[INFO] Ouverture de {real_path}...")
-    except Exception as e:
-        print(f"[ERREUR] Impossible d'ouvrir le gestionnaire de fichiers : {e}")
-# --- FIN DE L'AJOUT ---
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print(f"{Colors.BLUE_BG}{Colors.WHITE_TXT}  SETTINGS  {Colors.RESET}")
+        print("─" * 60)
+        print(f"Production Directory:")
+        print(f"{Colors.BOLD}{current_dir}{Colors.RESET}")
+        print("─" * 60)
+        print(f"{Colors.YELLOW}[E]{Colors.RESET}dit Path  {Colors.GREY}[ESC]{Colors.RESET} Back")
+        
+        k = getch()
+        
+        if k == '\x1b': return
+        
+        elif k.lower() == 'e':
+            new_path = input_text_tui("New Path >", default_val=current_dir)
+            if new_path == current_dir: continue
 
+            if new_path.startswith('"') and new_path.endswith('"'): 
+                new_path = new_path[1:-1]
 
-# --- COMMANDES ---
+            if not os.path.exists(new_path):
+                print(f"\n{Colors.RED}Directory not found!{Colors.RESET}")
+                print("Create it? (y/n)")
+                if getch().lower() == 'y':
+                    try: os.makedirs(new_path)
+                    except Exception as e: print(f"Error: {e}"); time.sleep(1); continue
+                else: continue
+            
+            if os.path.isdir(new_path):
+                settings["Projects_Directory"] = new_path
+                
+                # Clean slate for Customers but let Sync rebuild them
+                settings["Customers"] = [] 
+                save_settings_file(settings)
+                
+                # Wipe DB completely on directory change (Start fresh)
+                with open(PROJECTS_DB, 'w', encoding='utf-8') as f: f.write("")
+                
+                print(f"\n{Colors.YELLOW}Scanning new directory structure...{Colors.RESET}")
+                
+                # 1. Sync Customers
+                settings = sync_customers(settings)
+                
+                # 2. Sync Projects (This populates the list!)
+                proj_count = sync_projects_db(settings)
+                
+                print(f"{Colors.GREEN}Updated! Found {len(settings['Customers'])} clients and {proj_count} projects.{Colors.RESET}")
+                time.sleep(2.5)
 
-def command_view():
-    """Affiche les projets triés par client."""
-    settings = load_settings()
-    db = load_projects_db()
-    
-    print("\n--- TABLEAU DE BORD PROJETS ---")
+# --- CUSTOMER MENU & ACTIONS ---
+
+def get_customer_stats(settings):
+    """Returns list of dicts: {name, count, color}"""
+    root = settings.get("Projects_Directory")
     customers = settings.get("Customers", [])
+    colors = settings.get("Customer_Colors", {})
     
-    all_projects = []
-    for section in db.sections():
-        proj_data = {
-            "Title": section,
-            "Customer": db.get(section, "Customer", fallback="Inconnu"),
-            "Deadline": db.get(section, "Deadline", fallback="--")
-        }
-        all_projects.append(proj_data)
+    stats = []
+    for c in customers:
+        c_path = os.path.join(root, c)
+        count = 0
+        if os.path.exists(c_path):
+            try:
+                count = len([name for name in os.listdir(c_path) if os.path.isdir(os.path.join(c_path, name)) and not name.startswith(('.', '_'))])
+            except: pass
+        
+        hex_col = colors.get(c, "#FFFFFF")
+        stats.append({"name": c, "count": count, "color": hex_col})
+    return stats
 
-    if not all_projects:
-        print("Aucun projet en cours.")
-    else:
-        for cust in customers:
-            cust_projects = [p for p in all_projects if p['Customer'] == cust]
-            if cust_projects:
-                print(f"\n[{cust.upper()}]")
-                print(f"{'PROJET':<30} | {'DEADLINE':<15}")
-                print("-" * 45)
-                for p in cust_projects:
-                    print(f"{p['Title']:<30} | {p['Deadline']:<15}")
-                    
-        orphans = [p for p in all_projects if p['Customer'] not in customers]
-        if orphans:
-            print(f"\n[AUTRES / INCONNUS]")
-            for p in orphans:
-                print(f"{p['Title']:<30} | {p['Deadline']:<15}")
+def draw_customers_dashboard(stats, selected_idx):
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(f"{Colors.BLUE_BG}{Colors.WHITE_TXT}  CUSTOMERS MANAGEMENT  {Colors.RESET}")
+    print("─" * 60)
+    print(f"{Colors.HEADER}{'CUSTOMER NAME':<30} | {'PROJECTS':<10} | {'COLOR':<10}{Colors.RESET}")
+    print("─" * 60)
+    
+    limit = 15
+    start_idx = 0
+    if selected_idx > limit - 1: start_idx = selected_idx - (limit - 1)
+    visible = stats[start_idx : start_idx + limit]
+    
+    for i, s in enumerate(visible):
+        real_idx = start_idx + i
+        is_sel = (real_idx == selected_idx)
+        
+        c_ansi = Colors.hex_to_ansi(s['color'])
+        name_display = f"{c_ansi}{s['name']}{Colors.RESET}"
+        
+        line = f"{name_display:<40} | {str(s['count']):<10} | {s['color']:<10}"
+        
+        if is_sel: print(f"{Colors.INVERT}{s['name']:<30} | {str(s['count']):<10} | {s['color']:<10}{Colors.RESET}")
+        else: print(line)
 
-    print("\n[Actions] (a)jouter, (d)elete, (q)uitter")
-    choice = input(">> ").lower().strip()
-    if choice == 'a':
-        command_add()
-    elif choice == 'd':
-        command_delete()
-    elif choice == 'q':
-        sys.exit(0)
-    else:
-        command_view()
+    print("─" * 60)
+    print(f"{Colors.YELLOW}[A]{Colors.RESET}dd  {Colors.RED}[D]{Colors.RESET}elete  {Colors.GREEN}[ENTER]{Colors.RESET} Edit  {Colors.GREEN}[O]{Colors.RESET}pen  {Colors.CYAN}[S]{Colors.RESET}ettings  {Colors.GREY}[ESC]{Colors.RESET} Back")
 
-def command_add():
-    """Workflow de création de projet avec planification étape par étape."""
+def command_customers_menu():
     settings = load_settings()
-    
-    print("\n--- NOUVEAU PROJET ---")
-    
-    # Phase 1: Data Collection
-    customers = settings.get("Customers", [])
-    if not customers:
-        print("Aucun client configuré. Vérifiez settings.json.")
-        return
-
-    print("Sélectionnez un client :")
-    for i, c in enumerate(customers):
-        print(f"[{i+1}] {c}")
+    selected_idx = 0
     
     while True:
-        try:
-            idx = int(input("Choix: ")) - 1
-            if 0 <= idx < len(customers):
-                selected_cust = customers[idx]
-                break
-            print("Numéro invalide.")
-        except ValueError:
-            print("Entrez un nombre.")
+        settings = load_settings() 
+        stats = get_customer_stats(settings)
+        
+        if not stats: selected_idx = 0
+        elif selected_idx >= len(stats): selected_idx = len(stats) - 1
+        
+        draw_customers_dashboard(stats, selected_idx)
+        k = getch()
+        
+        if k == '\x1b': return 
+        elif k == 'UP': selected_idx = max(0, selected_idx - 1)
+        elif k == 'DOWN': selected_idx = min(len(stats) - 1, selected_idx + 1)
+        elif k == 's': command_settings_menu()
+        
+        elif k == 'o': 
+            if stats:
+                c_name = stats[selected_idx]['name']
+                open_file_explorer(os.path.join(settings.get("Projects_Directory"), c_name))
+        
+        elif k == 'a': 
+            os.system('cls' if os.name == 'nt' else 'clear')
+            print(f"{Colors.GREEN}--- NEW CUSTOMER ---{Colors.RESET}")
+            name = input_text_tui("Customer Name >")
+            if name:
+                root = settings.get("Projects_Directory")
+                path = os.path.join(root, name)
+                if not os.path.exists(path):
+                    os.makedirs(path)
+                    settings["Customers"].append(name)
+                    if "Customer_Colors" not in settings: settings["Customer_Colors"] = {}
+                    settings["Customer_Colors"][name] = "#FFFFFF"
+                    save_settings_file(settings)
+        
+        elif k == 'd': 
+            if stats:
+                target = stats[selected_idx]
+                os.system('cls' if os.name == 'nt' else 'clear')
+                print(f"{Colors.RED_BG}{Colors.WHITE_TXT} DELETE CUSTOMER {Colors.RESET}")
+                print(f"Customer: {Colors.BOLD}{target['name']}{Colors.RESET}")
+                print(f"{Colors.RED}WARNING: This will delete the folder and ALL contained projects!{Colors.RESET}")
+                print("Type 'DELETE' to confirm:")
+                confirm = input_text_tui(">")
+                if confirm == "DELETE":
+                    root = settings.get("Projects_Directory")
+                    path = os.path.join(root, target['name'])
+                    if os.path.exists(path):
+                        try: shutil.rmtree(path)
+                        except Exception as e: print(f"Error: {e}"); time.sleep(2)
+                    
+                    settings["Customers"].remove(target['name'])
+                    save_settings_file(settings)
+                    
+                    db = load_projects_db()
+                    sections_to_remove = []
+                    for section in db.sections():
+                        if db.get(section, "Customer") == target['name']:
+                            sections_to_remove.append(section)
+                    for s in sections_to_remove: db.remove_section(s)
+                    save_projects_db(db)
+        
+        elif k == '\r' or k == '\n': 
+            if stats:
+                target = stats[selected_idx]
+                edit_customer_interactive(target['name'], settings)
 
-    project_title = input("Titre du projet (Nom du dossier): ").strip()
-    while not project_title:
-        print("Le titre ne peut pas être vide.")
-        project_title = input("Titre du projet: ").strip()
-
-    # --- INITIALISATION VARIABLES ---
-    deadline_str = ""
-    deadline_obj = None # Sera calculé automatiquement basé sur la date la plus lointaine
-    send_to_google = False
+def edit_customer_interactive(old_name, settings):
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(f"{Colors.BLUE_BG}{Colors.WHITE_TXT} EDIT CUSTOMER {Colors.RESET}")
+    print(f"Editing: {old_name}")
+    print("-" * 30)
     
-    # Liste qui contiendra les événements à créer : [{'title': '...', 'date': datetime}, ...]
-    events_to_create = [] 
-
-    # --- BLOC PLANIFICATION (BOUCLE SUR LES ÉTAPES) ---
-    if settings.get("GoogleAPI", False):
-        receiver_script_path = os.path.join(SCRIPT_DIR, "receiver_GoogleApi.py")
-        exchange_file = os.path.join(SCRIPT_DIR, "selected_date.txt")
-
-        if not os.path.exists(receiver_script_path):
-             print("[AVERTISSEMENT] Script 'receiver_GoogleApi.py' introuvable.")
-        else:
-            steps = settings.get("Steps", [])
-            
-            # Liste des "choses" à planifier
-            # Si aucune étape config, on planifie juste une "Deadline"
-            items_to_schedule = steps if steps else ["DEADLINE"]
-            
-            print(f"\n[PLANIFICATION] {len(items_to_schedule)} événement(s) à définir.")
-            
-            for step_name in items_to_schedule:
-                # Nettoyage fichier échange
-                if os.path.exists(exchange_file): os.remove(exchange_file)
-                
-                # On prépare le titre affiché dans l'interface calendrier pour guider l'utilisateur
-                # Ex: "MonProjet (Etape: Review)"
-                display_title = f"{project_title} ({step_name})"
-                
-                print(f"\n--> Sélection de la date pour : {step_name}")
+    new_name = input_text_tui("New Name (Enter to skip) >", default_val=old_name)
+    old_color = settings.get("Customer_Colors", {}).get(old_name, "#FFFFFF")
+    new_color = input_text_tui("New HEX Color (e.g #FF0000) >", default_val=old_color)
+    
+    root = settings.get("Projects_Directory")
+    old_path = os.path.join(root, old_name)
+    new_path = os.path.join(root, new_name)
+    
+    if new_name != old_name:
+        if os.path.exists(old_path):
+            renamed = False
+            for i in range(3):
                 try:
-                    # Lancement TUI pour CETTE étape
-                    cmd = [sys.executable, receiver_script_path, display_title, selected_cust]
-                    subprocess.run(cmd)
-                    
-                    # Lecture date
-                    if os.path.exists(exchange_file):
-                        with open(exchange_file, "r") as f:
-                            date_str = f.read().strip()
-                        
-                        if date_str:
-                            d_obj = datetime.strptime(date_str, "%d-%m-%y")
-                            print(f"    Date choisie : {date_str}")
-                            
-                            # On construit le nom final de l'event Google
-                            if step_name == "DEADLINE":
-                                final_event_name = f"{selected_cust} - {project_title} - DEADLINE"
-                            else:
-                                final_event_name = f"{selected_cust} - {project_title} - {step_name}"
-                                
-                            events_to_create.append({
-                                "title": final_event_name,
-                                "date": d_obj,
-                                "raw_date_str": date_str # Pour l'affichage résumé
-                            })
-                            send_to_google = True # Au moins une date a été choisie
-                        else:
-                            print(f"    [IGNORE] Aucune date pour '{step_name}'")
-                    else:
-                        print(f"    [IGNORE] Annulé pour '{step_name}'")
-                        
+                    shutil.move(old_path, new_path)
+                    renamed = True
+                    break
+                except PermissionError: time.sleep(0.5)
                 except Exception as e:
-                    print(f"Erreur lancement calendrier : {e}")
+                    print(f"{Colors.RED}FS Error: {e}{Colors.RESET}")
+                    time.sleep(2); return
+            
+            if not renamed:
+                print(f"{Colors.RED}Error: Folder is locked.{Colors.RESET}")
+                time.sleep(2); return
 
-    # --- CALCUL DE LA DEADLINE DU PROJET ---
-    # La deadline est la date la plus lointaine parmi tous les events choisis
-    if events_to_create:
-        # On trie par date
-        events_to_create.sort(key=lambda x: x['date'])
-        # Le dernier est le plus loin
-        latest_event = events_to_create[-1]
-        deadline_obj = latest_event['date']
-        deadline_str = latest_event['raw_date_str']
-    
-    # Phase 2: Review
-    print("\n--- RÉSUMÉ ---")
-    print(f"Client   : {selected_cust}")
-    print(f"Projet   : {project_title}")
-    print(f"Deadline : {deadline_str if deadline_str else 'Non définie'}")
-    if events_to_create:
-        print("Planning :")
-        for evt in events_to_create:
-            print(f"  - {evt['date'].strftime('%d-%m-%y')} : {evt['title']}")
-    
-    confirm = input("\nConfirmer création ? (y/n/retry): ").lower().strip()
-    if confirm == 'n': return
-    elif confirm == 'retry': command_add(); return
-
-    # Drapeaux de succès
-    google_op_success = True
-    template_op_success = True 
-    final_project_path = None
-
-    # --- Phase 3: Google Integration (ENVOI DES EVENTS) ---
-    if send_to_google and events_to_create:
-        print("\n--- GOOGLE CALENDAR INTEGRATION ---")
-        try:
-            # 1. Authentification
-            service = receiver_GoogleApi.get_calendar_service(APP_DIR)
-            if not service:
-                print("[ERREUR] Auth échouée.")
-                google_op_success = False
-            else:
-                # 2. Choix du calendrier (Une seule fois pour tous les events)
-                cals = receiver_GoogleApi.get_writable_calendars(service)
-                cal_id = None
-                
-                if not cals:
-                    print("[ERREUR] Aucun calendrier inscriptible.")
-                    google_op_success = False
-                else:
-                    print("Sélectionnez le calendrier pour ajouter le planning :")
-                    for i, cal in enumerate(cals):
-                        print(f"[{i+1}] {cal['summary']}")
-                    
-                    while True:
-                        try:
-                            c_idx = int(input("Choix (0 pour annuler): "))
-                            if c_idx == 0: google_op_success = False; break
-                            if 0 <= c_idx - 1 < len(cals):
-                                cal_id = cals[c_idx - 1]['id']
-                                break
-                        except ValueError: pass
-
-                # 3. Création en masse
-                if google_op_success and cal_id:
-                    print(f"Création de {len(events_to_create)} événement(s)...")
-                    all_ok = True
-                    for item in events_to_create:
-                        # Appel API
-                        if not receiver_GoogleApi.create_event(service, cal_id, item['title'], item['date']):
-                            all_ok = False
-                    
-                    if not all_ok: print("[ATTENTION] Certains événements n'ont pas été créés.")
-                    else: print("[SUCCÈS] Planning exporté vers Google Agenda.")
-
-        except Exception as e:
-            print(f"[ERREUR CRITIQUE] : {e}")
-            google_op_success = False
-    
-    # Si Google échoue, on annule tout
-    if not google_op_success:
-        print("\n[ANNULATION] Problème Google Calendar. Projet non créé.")
-        return
-
-    # --- Phase 4: File System Generation ---
-    projects_root = settings.get("Projects_Directory")
-    
-    if not projects_root or not os.path.isdir(projects_root):
-        print(f"[ERREUR] Dossier racine introuvable: {projects_root}")
-        template_op_success = False 
-    else:
-        client_dir_path = os.path.join(projects_root, selected_cust)
-        if not os.path.exists(client_dir_path):
-            try: os.makedirs(client_dir_path)
-            except OSError: template_op_success = False
-        
-        if template_op_success:
-            print("[TEMPLATE] Génération des dossiers...")
             try:
-                if not os.path.exists(TEMPLATE_MAKER_SCRIPT):
-                    print(f"[ERREUR] Script Template introuvable.")
-                    template_op_success = False
-                else:
-                    final_folder_name = project_title
-                    if settings.get("Title_AddCustomer", False):
-                        final_folder_name = f"{selected_cust} - {project_title}"
-                    
-                    final_project_path = os.path.join(client_dir_path, final_folder_name)
-                    
-                    result = subprocess.run([sys.executable, TEMPLATE_MAKER_SCRIPT, client_dir_path, final_folder_name])
-                    
-                    if result.returncode != 0:
-                        template_op_success = False
-                        final_project_path = None
-                    
-            except Exception as e:
-                print(f"[ERREUR] Template: {e}")
-                template_op_success = False
-                final_project_path = None
+                if old_name in settings["Customers"]:
+                    idx = settings["Customers"].index(old_name)
+                    settings["Customers"][idx] = new_name
+                
+                if old_name in settings.get("Customer_Colors", {}):
+                    col = settings["Customer_Colors"].pop(old_name)
+                    settings["Customer_Colors"][new_name] = col
+                
+                db = load_projects_db()
+                for section in db.sections():
+                    if db.get(section, "Customer") == old_name:
+                        db.set(section, "Customer", new_name)
+                save_projects_db(db)
+            except: pass
 
-    # --- Phase 5: Database Update ---
-    if template_op_success:
-        db = load_projects_db()
-        if not db.has_section(project_title): db.add_section(project_title)
-        
-        db.set(project_title, "Customer", selected_cust)
-        db.set(project_title, "Deadline", deadline_str if deadline_str else "N/A")
-        save_projects_db(db)
-        
-        print("\n[SUCCÈS] Projet créé et sauvegardé.")
-        
-        if final_project_path:
-            open_q = input(f"Ouvrir le dossier ? (Y/n): ").lower().strip()
-            if open_q != 'n': open_file_explorer(final_project_path)
-    else:
-        print("\n[ECHEC] La création des dossiers a échoué.")
+    if "Customer_Colors" not in settings: settings["Customer_Colors"] = {}
+    settings["Customer_Colors"][new_name] = new_color
     
-    input("Appuyez sur Entrée pour revenir au menu...")
-    command_view()
-       
-def command_delete():
-    """Workflow de suppression."""
+    save_settings_file(settings)
+    print(f"{Colors.GREEN}Saved!{Colors.RESET}")
+    time.sleep(0.5)
+
+# --- MAIN PROJECTS DASHBOARD ---
+
+def get_project_list_flat():
+    db = load_projects_db()
+    settings = load_settings()
+    colors = settings.get("Customer_Colors", {})
+    
+    projects = []
+    for section in db.sections():
+        cust = db.get(section, "Customer", fallback="?")
+        projects.append({
+            "id": section,
+            "customer": cust,
+            "deadline": db.get(section, "Deadline", fallback="--"),
+            "color": colors.get(cust, "#FFFFFF")
+        })
+    projects.reverse()
+    return projects
+
+def draw_dashboard(projects, selected_idx):
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(f"{Colors.BLUE_BG}{Colors.WHITE_TXT}  PROJECT MANAGEMENT  {Colors.RESET}")
+    print(f"{Colors.GREY}Database: {len(projects)} projects{Colors.RESET}")
+    print("─" * 60)
+    print(f"{Colors.HEADER}{'PROJECT':<30} | {'CUSTOMER':<15} | {'DEADLINE':<10}{Colors.RESET}")
+    print("─" * 60)
+    
+    limit = 15
+    start_idx = 0
+    if selected_idx > limit - 1: start_idx = selected_idx - (limit - 1)
+    visible = projects[start_idx : start_idx + limit]
+    
+    if not projects:
+        print(f"\n   {Colors.GREY}(No projects. Press 'a' to create){Colors.RESET}")
+    
+    for i, p in enumerate(visible):
+        real_idx = start_idx + i
+        is_sel = (real_idx == selected_idx)
+        
+        # --- SMART DISPLAY NAME CLEANING ---
+        raw_name = p['id']
+        cust_name = p['customer']
+        
+        display_name = raw_name
+        
+        # Case insensitive check
+        if cust_name.lower() in raw_name.lower():
+            # Remove customer name (case insensitive replace)
+            start_index = raw_name.lower().find(cust_name.lower())
+            end_index = start_index + len(cust_name)
+            
+            # Remove the name from the string
+            temp_name = raw_name[:start_index] + raw_name[end_index:]
+            
+            # Clean leading separators/spaces
+            # We strip common separators: space, dash, underscore
+            display_name = temp_name.lstrip(" -_")
+            
+            # Fallback: if name became empty (project name WAS customer name), keep original
+            if not display_name: display_name = raw_name
+
+        # Truncate
+        p_display = (display_name[:27] + '..') if len(display_name) > 29 else display_name
+        c_display = (cust_name[:13] + '..') if len(cust_name) > 15 else cust_name
+        
+        # Apply Color
+        c_ansi = Colors.hex_to_ansi(p['color'])
+        c_final = f"{c_ansi}{c_display:<15}{Colors.RESET}"
+        
+        line = f"{p_display:<30} | {c_final} | {p['deadline']:<10}"
+        
+        if is_sel: print(f"{Colors.INVERT}{p_display:<30} | {c_display:<15} | {p['deadline']:<10}{Colors.RESET}")
+        else: print(f"{Colors.BOLD}{line}{Colors.RESET}")
+
+    print("─" * 60)
+    print(f"{Colors.YELLOW}[A]{Colors.RESET}dd  {Colors.RED}[D]{Colors.RESET}elete  {Colors.GREEN}[O]{Colors.RESET}pen  {Colors.CYAN}[C]{Colors.RESET}ustomers  {Colors.CYAN}[S]{Colors.RESET}ettings  {Colors.GREEN}[ENTER]{Colors.RESET} Edit")
+
+def edit_project_interactive(old_title):
+    db = load_projects_db()
+    settings = load_settings()
+    
+    if not db.has_section(old_title): return
+
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(f"{Colors.BLUE_BG}{Colors.WHITE_TXT} EDIT PROJECT {Colors.RESET}")
+    print(f"Project: {old_title}")
+    
+    new_title = input_text_tui("New Title >", default_val=old_title)
+    
+    if new_title == old_title: return
+
+    cust = db.get(old_title, "Customer")
+    root = settings.get("Projects_Directory")
+    
+    old_folder_name = old_title
+    if settings.get("Title_AddCustomer", False): old_folder_name = f"{cust} - {old_title}"
+    new_folder_name = new_title
+    if settings.get("Title_AddCustomer", False): new_folder_name = f"{cust} - {new_title}"
+    
+    old_path = os.path.join(root, cust, old_folder_name)
+    new_path = os.path.join(root, cust, new_folder_name)
+    
+    if not os.path.exists(old_path):
+         old_path = os.path.join(root, cust, old_title)
+
+    if os.path.exists(old_path):
+        renamed = False
+        for i in range(3):
+            try:
+                shutil.move(old_path, new_path)
+                renamed = True
+                break
+            except PermissionError: time.sleep(0.5)
+            except Exception as e:
+                print(f"{Colors.RED}FS Error: {e}{Colors.RESET}")
+                time.sleep(2); return
+        
+        if not renamed:
+            print(f"{Colors.RED}Error: Folder locked.{Colors.RESET}")
+            time.sleep(2); return
+    
+    data = dict(db.items(old_title))
+    db.remove_section(old_title)
+    db.add_section(new_title)
+    for k, v in data.items(): db.set(new_title, k, v)
+    
+    save_projects_db(db)
+    print(f"{Colors.GREEN}Project updated.{Colors.RESET}")
+    time.sleep(1)
+
+def command_view_interactive():
+    settings = load_settings()
+    # --- AUTO-SYNC ON STARTUP ---
+    settings = sync_customers(settings)
+    sync_projects_db(settings)
+    
+    selected_idx = 0
+    
+    while True:
+        projects = get_project_list_flat()
+        if not projects: selected_idx = 0
+        elif selected_idx >= len(projects): selected_idx = len(projects) - 1
+        
+        draw_dashboard(projects, selected_idx)
+        k = getch()
+        
+        if k == 'q' or k == '\x1b': sys.exit(0)
+        elif k == 'UP': selected_idx = max(0, selected_idx - 1)
+        elif k == 'DOWN': selected_idx = min(len(projects) - 1, selected_idx + 1)
+        elif k == 's': command_settings_menu()
+        elif k == 'c': command_customers_menu()
+        elif k == 'a': command_add_interactive(); selected_idx = 0
+        elif k == 'd': 
+            if projects:
+                command_delete_interactive(projects[selected_idx]['id'])
+                if selected_idx >= len(projects) - 1: selected_idx = max(0, selected_idx - 1)
+        elif k == 'o':
+            if projects: open_project_folder(projects[selected_idx]['id'])
+        elif k == '\r' or k == '\n':
+             if projects: edit_project_interactive(projects[selected_idx]['id'])
+
+def open_project_folder(project_name):
     settings = load_settings()
     db = load_projects_db()
+    root = settings.get("Projects_Directory")
+    cust = db.get(project_name, "Customer", fallback="")
+    path1 = os.path.join(root, cust, project_name)
+    path2 = os.path.join(root, cust, f"{cust} - {project_name}")
     
-    print("\n--- SUPPRESSION PROJET ---")
+    found = None
+    if os.path.exists(path1): found = path1
+    elif os.path.exists(path2): found = path2
     
-    projects_list = []
+    if found: open_file_explorer(found)
+    else:
+        print(f"\n{Colors.RED}Folder not found!{Colors.RESET}")
+        time.sleep(1)
+
+def command_add_interactive():
+    settings = load_settings()
+    settings = sync_customers(settings)
+    
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(f"{Colors.GREEN}--- NEW PROJECT ---{Colors.RESET}")
+    
     customers = settings.get("Customers", [])
+    if not customers:
+        print(f"No customers found in: {settings.get('Projects_Directory')}")
+        time.sleep(2); return
+
+    print("Customer :")
+    for i, c in enumerate(customers):
+        print(f"  {Colors.CYAN}[{i+1}]{Colors.RESET} {c}")
     
-    counter = 1
-    for cust in customers:
-        print(f"\nClient: {cust}")
-        found = False
-        for section in db.sections():
-            if db.get(section, "Customer") == cust:
-                print(f" [{counter}] {section}")
-                projects_list.append(section)
-                counter += 1
-                found = True
-        if not found:
-            print(" (Aucun projet)")
-            
-    if not projects_list:
-        print("Rien à supprimer.")
-        return
-
-    try:
-        idx_str = input("\nEntrez le numéro du projet à supprimer (ou 0 pour annuler): ")
-        idx = int(idx_str) - 1
-        if idx == -1:
-            return
-        if 0 <= idx < len(projects_list):
-            proj_name = projects_list[idx]
-        else:
-            print("Index invalide.")
-            return
-    except ValueError:
-        print("Entrée invalide.")
-        return
-
-    print(f"\n[ATTENTION] Vous allez supprimer le projet : '{proj_name}'")
-    sure = input("Êtes-vous sûr ? (Taper 'DELETE' pour confirmer): ").strip()
+    sel_cust = None
+    while not sel_cust:
+        res = input_text_tui("Number >")
+        if not res: return
+        try:
+            idx = int(res) - 1
+            if 0 <= idx < len(customers): sel_cust = customers[idx]
+        except: pass
     
-    if sure == 'DELETE':
-        # 1. Suppression Fichiers
-        projects_root = settings.get("Projects_Directory")
-        customer_name = db.get(proj_name, "Customer")
-        
-        # IMPORTANT : Pour supprimer, il faut deviner le nom du dossier réel
-        # Si l'option "Title_AddCustomer" est active, le dossier est "Client - Projet"
-        # Si elle ne l'est pas, c'est "Projet".
-        # MAIS l'utilisateur a pu changer l'option entre temps...
-        # Le plus sûr est de vérifier les deux possibilités.
-        
-        target_path_simple = os.path.join(projects_root, customer_name, proj_name)
-        target_path_full = os.path.join(projects_root, customer_name, f"{customer_name} - {proj_name}")
-        
-        path_to_delete = None
-        
-        if os.path.exists(target_path_simple):
-            path_to_delete = target_path_simple
-        elif os.path.exists(target_path_full):
-            path_to_delete = target_path_full
-            
-        if path_to_delete:
-            try:
-                shutil.rmtree(path_to_delete)
-                print(f"[FS] Dossier supprimé : {path_to_delete}")
-            except OSError as e:
-                print(f"[ERREUR] Impossible de supprimer le dossier : {e}")
-        else:
-            print(f"[FS] Aucun dossier trouvé ({proj_name} ou {customer_name} - {proj_name}).")
-            
-        # 2. Suppression DB
-        db.remove_section(proj_name)
-        save_projects_db(db)
-        print("[DB] Entrée supprimée.")
-        
-    else:
-        print("Suppression annulée.")
+    title = ""
+    while not title:
+        title = input_text_tui("Project Title >")
+        if not title: return
 
-    input("Appuyez sur Entrée pour continuer...")
-    command_view()
+    events_to_create = []
+    deadline_str = "N/A"
+    
+    if settings.get("GoogleAPI", False):
+        receiver_path = os.path.join(SCRIPT_DIR, "GoogleCalendar.py")
+        temp_dir = tempfile.gettempdir()
+        exchange_file = os.path.join(temp_dir, "ProjectManager_date.tmp")
+        
+        if os.path.exists(receiver_path):
+            steps = settings.get("Steps", []) or ["DEADLINE"]
+            print(f"\n{Colors.YELLOW}Scheduling...{Colors.RESET}")
+            for step in steps:
+                if os.path.exists(exchange_file): os.remove(exchange_file)
+                display = f"{title} ({step})"
+                
+                # UPDATED LINE: Added "--title" before the display variable
+                subprocess.run([sys.executable, receiver_path, "--title", display, sel_cust])
+                
+                if os.path.exists(exchange_file):
+                    with open(exchange_file, 'r') as f: date_s = f.read().strip()
+                    if date_s:
+                        d_obj = datetime.strptime(date_s, "%d-%m-%y")
+                        evt_name = f"{sel_cust} - {title} - {step}" if step != "DEADLINE" else f"{sel_cust} - {title} - DEADLINE"
+                        events_to_create.append({"title": evt_name, "date": d_obj, "raw": date_s})
+                        print(f"  -> {step}: {Colors.GREEN}{date_s}{Colors.RESET}")
+                    else: print(f"  -> {step}: {Colors.GREY}Skipped{Colors.RESET}")
+                else: print(f"  -> {step}: {Colors.GREY}Skipped{Colors.RESET}")
 
-# --- MAIN ---
+    if events_to_create:
+        events_to_create.sort(key=lambda x: x['date'])
+        deadline_str = events_to_create[-1]['raw']
 
-def main():
-    if not os.path.exists(SETTINGS_FILE):
-        init_settings()
+    print(f"\nCreate '{title}' for '{sel_cust}'? (Enter=YES, Esc=NO)")
+    k = getch()
+    if k == '\x1b': return
 
-    if len(sys.argv) > 1:
-        arg = sys.argv[1].lower()
-        if arg == 'view':
-            command_view()
-        elif arg == 'add':
-            command_add()
-        elif arg == 'delete':
-            command_delete()
-        else:
-            print(f"Commande inconnue: {arg}")
-            print("Usage: ProjectManager.py [View|Add|Delete]")
-    else:
-        command_view()
+    if events_to_create and GoogleCalendar:
+        try:
+            srv = GoogleCalendar.get_calendar_service(APP_DIR)
+            cals = GoogleCalendar.get_writable_calendars(srv)
+            if cals:
+                cal_id = cals[0]['id'] 
+                for e in events_to_create:
+                    GoogleCalendar.create_event(srv, cal_id, e['title'], e['date'])
+                print(f"{Colors.GREEN}[API] Calendar updated.{Colors.RESET}")
+        except: pass
+
+    root = settings.get("Projects_Directory")
+    cust_path = os.path.join(root, sel_cust)
+    if not os.path.exists(cust_path): os.makedirs(cust_path)
+    
+    final_name = title
+    if settings.get("Title_AddCustomer", False): final_name = f"{sel_cust} - {title}"
+    
+    final_path = os.path.join(cust_path, final_name)
+    
+    if os.path.exists(TEMPLATE_MAKER_SCRIPT):
+        subprocess.run([sys.executable, TEMPLATE_MAKER_SCRIPT, cust_path, final_name])
+    else: os.makedirs(final_path, exist_ok=True)
+
+    db = load_projects_db()
+    if not db.has_section(title): db.add_section(title)
+    db.set(title, "Customer", sel_cust)
+    db.set(title, "Deadline", deadline_str)
+    save_projects_db(db)
+    print(f"{Colors.GREEN}Project created!{Colors.RESET}")
+    time.sleep(1)
+
+def command_delete_interactive(target_name):
+    db = load_projects_db()
+    settings = load_settings()
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(f"{Colors.RED_BG}{Colors.WHITE_TXT} DELETION {Colors.RESET}")
+    print(f"Project : {Colors.BOLD}{target_name}{Colors.RESET}")
+    print(f"Confirm? (Press 'y')")
+    if getch().lower() != 'y': return
+
+    cust = db.get(target_name, "Customer")
+    root = settings.get("Projects_Directory")
+    p1 = os.path.join(root, cust, target_name)
+    p2 = os.path.join(root, cust, f"{cust} - {target_name}")
+    
+    for p in [p1, p2]:
+        if os.path.exists(p):
+            try: shutil.rmtree(p); print(f"Deleted: {p}")
+            except: pass
+    
+    db.remove_section(target_name)
+    save_projects_db(db)
+    time.sleep(1)
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nInterruption utilisateur.")
-        sys.exit(0)
-
-
-
+    try: command_view_interactive()
+    except KeyboardInterrupt: sys.exit(0)
